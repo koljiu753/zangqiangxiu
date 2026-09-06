@@ -28,6 +28,8 @@ Set `AUTH_COOKIE_SECURE=true` whenever the public site is served over HTTPS. Kee
 
 `CATALOG_ADMIN_TOKEN` must be a random value of at least 32 characters in production and is compared in constant time. It is server-to-server only and must never use a `NEXT_PUBLIC_` name or be sent to the browser.
 
+Authenticated Web mutations also carry `X-Admin-Actor`, a Unix timestamp, and `X-Request-ID`, protected by an HMAC-SHA256 signature using the separate `CATALOG_ACTOR_SIGNING_SECRET`. Catalog accepts only complete signatures within a five-minute window and records the verified actor in audit logs. Requests that intentionally use only `CATALOG_ADMIN_TOKEN` (maintenance scripts) remain compatible and are attributed to `service-admin`; arbitrary actor headers without a valid signature are rejected.
+
 ## Release checks
 
 Before a release:

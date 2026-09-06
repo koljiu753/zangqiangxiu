@@ -112,6 +112,7 @@ services:
       CATALOG_DATABASE_BACKEND: postgresql
       CATALOG_DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
       CATALOG_ADMIN_TOKEN: ${CATALOG_ADMIN_TOKEN:?set CATALOG_ADMIN_TOKEN in .env}
+      CATALOG_ACTOR_SIGNING_SECRET: ${CATALOG_ACTOR_SIGNING_SECRET:?set CATALOG_ACTOR_SIGNING_SECRET in .env}
       CATALOG_CORS_ORIGINS: ${PUBLIC_WEB_ORIGIN:-http://localhost:3000}
       CATALOG_AI_INTERNAL_BASE_URL: http://ai:8002/v1
       CATALOG_AI_SERVICE_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN in .env}
@@ -190,6 +191,7 @@ services:
       # Public pages must never receive draft/internal Catalog records.
       CATALOG_PREVIEW_INTERNAL: "false"
       CATALOG_ADMIN_TOKEN: ${CATALOG_ADMIN_TOKEN:?set CATALOG_ADMIN_TOKEN in .env}
+      CATALOG_ACTOR_SIGNING_SECRET: ${CATALOG_ACTOR_SIGNING_SECRET:?set CATALOG_ACTOR_SIGNING_SECRET in .env}
       AI_API_INTERNAL_BASE_URL: http://ai:8002/v1
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN in .env}
       # Public Studio analyses are restricted to published reference assets.

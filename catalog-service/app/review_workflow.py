@@ -100,7 +100,7 @@ def list_review_tasks(
 
 
 @router.post("/batch-assign", response_model=ReviewWorkflowResponse)
-def batch_assign(payload: BatchReviewAssignmentRequest) -> ReviewWorkflowResponse:
+def batch_assign(payload: BatchReviewAssignmentRequest, actor: str = Depends(require_admin)) -> ReviewWorkflowResponse:
     results: list[ReviewWorkflowItem] = []
     for item in payload.items:
         fingerprint = _fingerprint("assign", item.model_dump())
@@ -126,7 +126,7 @@ def batch_assign(payload: BatchReviewAssignmentRequest) -> ReviewWorkflowRespons
                     else:
                         connection.execute("INSERT INTO review_tasks(pattern_id,assignee,state) VALUES (?,?,'assigned')", (item.patternId, item.assignee))
                     current = connection.execute("SELECT * FROM review_tasks WHERE pattern_id=?", (item.patternId,)).fetchone()
-                    _audit(connection, item.patternId, "review_reassigned" if before else "review_assigned", "development-admin", before, _task(current).model_dump())
+                    _audit(connection, item.patternId, "review_reassigned" if before else "review_assigned", actor, before, _task(current).model_dump())
                 task = _task(current)
                 result = ReviewWorkflowItem(patternId=item.patternId, status="succeeded", task=task)
                 _save(connection, item.requestId, "assign", fingerprint, result)
@@ -137,7 +137,7 @@ def batch_assign(payload: BatchReviewAssignmentRequest) -> ReviewWorkflowRespons
 
 
 @router.post("/batch-decide", response_model=ReviewWorkflowResponse)
-def batch_decide(payload: BatchReviewDecisionRequest) -> ReviewWorkflowResponse:
+def batch_decide(payload: BatchReviewDecisionRequest, actor: str = Depends(require_admin)) -> ReviewWorkflowResponse:
     results: list[ReviewWorkflowItem] = []
     for item in payload.items:
         fingerprint = _fingerprint("decide", item.model_dump())
@@ -174,7 +174,7 @@ def batch_decide(payload: BatchReviewDecisionRequest) -> ReviewWorkflowResponse:
                 task_row = connection.execute("SELECT * FROM review_tasks WHERE pattern_id=?", (item.patternId,)).fetchone()
                 task = _task(task_row)
                 after_pattern = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id=?", (item.patternId,)).fetchone())
-                _audit(connection, item.patternId, f"review_{item.decision}", item.decidedBy,
+                _audit(connection, item.patternId, f"review_{item.decision}", actor,
                        {"pattern": before_pattern, "task": before_task}, {"pattern": after_pattern, "task": task.model_dump()})
                 result = ReviewWorkflowItem(patternId=item.patternId, status="succeeded", task=task)
                 _save(connection, item.requestId, "decide", fingerprint, result)

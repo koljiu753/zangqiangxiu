@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $requiredKeys = @(
-    "CATALOG_ADMIN_TOKEN", "AI_INTERNAL_TOKEN", "ADMIN_UI_USER",
+    "CATALOG_ADMIN_TOKEN", "CATALOG_ACTOR_SIGNING_SECRET", "AI_INTERNAL_TOKEN", "ADMIN_UI_USER",
     "ADMIN_UI_PASSWORD", "AUTH_SESSION_SECRET", "POSTGRES_DB",
     "POSTGRES_USER", "POSTGRES_PASSWORD", "MINIO_ROOT_USER",
     "MINIO_ROOT_PASSWORD", "AI_S3_ACCESS_KEY", "AI_S3_SECRET_KEY",
@@ -43,7 +43,7 @@ foreach ($key in $requiredKeys) {
 if ($values.ContainsKey("AUTH_SESSION_SECRET") -and $values["AUTH_SESSION_SECRET"].Length -lt 32) {
     $problems.Add("AUTH_SESSION_SECRET must contain at least 32 characters")
 }
-foreach ($key in @("CATALOG_ADMIN_TOKEN", "AI_INTERNAL_TOKEN", "POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD", "AI_S3_SECRET_KEY", "CATALOG_S3_SECRET_KEY")) {
+foreach ($key in @("CATALOG_ADMIN_TOKEN", "CATALOG_ACTOR_SIGNING_SECRET", "AI_INTERNAL_TOKEN", "POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD", "AI_S3_SECRET_KEY", "CATALOG_S3_SECRET_KEY")) {
     if ($values.ContainsKey($key) -and $values[$key].Length -lt 24) {
         $problems.Add("$key must contain at least 24 characters")
     }

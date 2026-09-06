@@ -2,6 +2,9 @@ import importlib
 import csv
 import io
 import pytest
+import hashlib
+import hmac
+import time
 
 from fastapi.testclient import TestClient
 
@@ -41,6 +44,29 @@ def approve(client, headers, pattern_id, assignee="专家甲"):
         "requestId": f"decide-{suffix}", "issues": []
     }]})
     assert decided.json()["items"][0]["status"] == "succeeded"
+
+
+def signed_headers(method, path, actor="operator-a", timestamp=None, request_id="request-actor-001", secret="actor-secret-that-is-at-least-32-bytes"):
+    timestamp = str(timestamp or int(time.time()))
+    canonical = f"{timestamp}\n{method}\n{path}\n{actor}\n{request_id}"
+    signature = hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+    return {"X-Admin-Token": "test-token", "X-Admin-Actor": actor, "X-Admin-Timestamp": timestamp,
+            "X-Admin-Signature": signature, "X-Request-ID": request_id}
+
+
+def test_signed_actor_is_audited_and_forged_or_expired_signatures_are_rejected(tmp_path, monkeypatch):
+    secret = "actor-secret-that-is-at-least-32-bytes"
+    monkeypatch.setenv("CATALOG_ACTOR_SIGNING_SECRET", secret)
+    with client_for(tmp_path, monkeypatch) as client:
+        path = "/api/v1/admin/patterns"
+        created = client.post(path, headers=signed_headers("POST", path, secret=secret), json=sample(id="pat_actor_signed"))
+        assert created.status_code == 201
+        logs = client.get("/api/v1/admin/patterns/pat_actor_signed/audit-logs", headers={"X-Admin-Token": "test-token"}).json()
+        assert logs[0]["actor"] == "operator-a"
+        forged = signed_headers("POST", path, secret="wrong-secret-that-is-also-32-bytes")
+        assert client.post(path, headers=forged, json=sample(id="pat_actor_forged")).status_code == 401
+        expired = signed_headers("POST", path, timestamp=int(time.time()) - 301, secret=secret)
+        assert client.post(path, headers=expired, json=sample(id="pat_actor_expired")).status_code == 401
 
 
 def test_health(tmp_path, monkeypatch):

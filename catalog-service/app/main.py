@@ -35,7 +35,7 @@ app.add_middleware(
     allow_origins=list(get_settings().cors_origins),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH"],
-    allow_headers=["Content-Type", "X-Admin-Token"],
+    allow_headers=["Content-Type", "X-Admin-Token", "X-Admin-Actor", "X-Admin-Timestamp", "X-Admin-Signature", "X-Request-ID"],
 )
 app.include_router(review_workflow_router)
 
@@ -56,14 +56,14 @@ def ensure_publishable(item: dict) -> None:
         raise HTTPException(status_code=422, detail={"code": "publish_validation_failed", "errors": errors})
 
 
-def write_audit(connection, pattern_id: str, action: str, before: dict | None, after: dict | None) -> None:
+def write_audit(connection, pattern_id: str, action: str, before: dict | None, after: dict | None, actor: str = "service-admin") -> None:
     connection.execute(
         "INSERT INTO audit_logs(pattern_id,action,actor,before_json,after_json) VALUES (?,?,?,?,?)",
-        (pattern_id, action, "development-admin", json.dumps(before, ensure_ascii=False) if before else None, json.dumps(after, ensure_ascii=False) if after else None),
+        (pattern_id, action, actor, json.dumps(before, ensure_ascii=False) if before else None, json.dumps(after, ensure_ascii=False) if after else None),
     )
 
 
-def _publish_pattern(pattern_id: str) -> Pattern:
+def _publish_pattern(pattern_id: str, actor: str = "service-admin") -> Pattern:
     settings = get_settings()
     with database(settings) as connection:
         row = connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone()
@@ -78,21 +78,21 @@ def _publish_pattern(pattern_id: str) -> Pattern:
             raise HTTPException(status_code=422, detail={"code": "publish_validation_failed", "errors": ["审核任务必须为 approved"]})
     except HTTPException as exc:
         with database(settings) as connection:
-            write_audit(connection, pattern_id, "publish_validation_failed", before, {"detail": exc.detail})
+            write_audit(connection, pattern_id, "publish_validation_failed", before, {"detail": exc.detail}, actor)
         raise
 
     try:
         sync_status = sync_publication(pattern_id, True, settings)
     except AISyncError as exc:
         with database(settings) as connection:
-            write_audit(connection, pattern_id, "publish_sync_failed", before, {"error": str(exc)})
+            write_audit(connection, pattern_id, "publish_sync_failed", before, {"error": str(exc)}, actor)
         raise HTTPException(status_code=502, detail={"code": "ai_sync_failed", "message": str(exc)}) from exc
 
     try:
         with database(settings) as connection:
             connection.execute("UPDATE patterns SET status='published', visibility='public', updated_at=CURRENT_TIMESTAMP WHERE id=?", (pattern_id,))
             after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone())
-            write_audit(connection, pattern_id, "published", before, {**after, "aiSync": sync_status})
+            write_audit(connection, pattern_id, "published", before, {**after, "aiSync": sync_status}, actor)
     except Exception:
         if sync_status == "synchronized":
             try:
@@ -103,7 +103,7 @@ def _publish_pattern(pattern_id: str) -> Pattern:
     return Pattern.model_validate(after)
 
 
-def _withdraw_pattern(pattern_id: str) -> Pattern:
+def _withdraw_pattern(pattern_id: str, actor: str = "service-admin") -> Pattern:
     """Withdraw public content from AI first, then Catalog; compensate AI if the DB write fails."""
     settings = get_settings()
     with database(settings) as connection:
@@ -117,13 +117,13 @@ def _withdraw_pattern(pattern_id: str) -> Pattern:
         sync_status = sync_publication(pattern_id, False, settings)
     except AISyncError as exc:
         with database(settings) as connection:
-            write_audit(connection, pattern_id, "withdraw_sync_failed", before, {"error": str(exc)})
+            write_audit(connection, pattern_id, "withdraw_sync_failed", before, {"error": str(exc)}, actor)
         raise HTTPException(status_code=502, detail={"code": "ai_sync_failed", "message": str(exc)}) from exc
     try:
         with database(settings) as connection:
             connection.execute("UPDATE patterns SET status='draft', visibility='internal_only', updated_at=CURRENT_TIMESTAMP WHERE id=?", (pattern_id,))
             after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone())
-            write_audit(connection, pattern_id, "withdrawn", before, {**after, "aiSync": sync_status})
+            write_audit(connection, pattern_id, "withdrawn", before, {**after, "aiSync": sync_status}, actor)
     except Exception:
         if sync_status == "synchronized":
             try:
@@ -219,7 +219,7 @@ def get_pattern(pattern_id: str) -> Pattern:
 
 
 @app.post("/api/v1/admin/patterns", response_model=Pattern, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
-def create_pattern(payload: PatternCreate) -> Pattern:
+def create_pattern(payload: PatternCreate, actor: str = Depends(require_admin)) -> Pattern:
     item = payload.model_dump()
     if item["status"] == "published" or item["visibility"] == "public":
         raise HTTPException(status_code=409, detail={"code": "invalid_publication_transition", "message": "Create as non-public content, then use the publish endpoint"})
@@ -237,24 +237,24 @@ def create_pattern(payload: PatternCreate) -> Pattern:
             raise
         row = connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone()
         created = row_to_dict(row)
-        write_audit(connection, pattern_id, "created", None, created)
+        write_audit(connection, pattern_id, "created", None, created, actor)
     return Pattern.model_validate(created)
 
 
 @app.post("/api/v1/admin/patterns/import", response_model=list[Pattern], dependencies=[Depends(require_admin)])
-def import_patterns(payload: list[PatternCreate]) -> list[Pattern]:
+def import_patterns(payload: list[PatternCreate], actor: str = Depends(require_admin)) -> list[Pattern]:
     """Small JSON import endpoint. Imported rows are always draft/internal-only."""
     if len(payload) > 500:
         raise HTTPException(status_code=413, detail="Import is limited to 500 records")
     imported = []
     for item in payload:
         safe_item = item.model_copy(update={"status": "draft", "visibility": "internal_only"})
-        imported.append(create_pattern(safe_item))
+        imported.append(create_pattern(safe_item, actor))
     return imported
 
 
 @app.patch("/api/v1/admin/patterns/{pattern_id}", response_model=Pattern, dependencies=[Depends(require_admin)])
-def update_pattern(pattern_id: str, payload: PatternUpdate) -> Pattern:
+def update_pattern(pattern_id: str, payload: PatternUpdate, actor: str = Depends(require_admin)) -> Pattern:
     changes = payload.model_dump(exclude_unset=True)
     mapping = {"imageUrl": "image_url", "colors": "colors_json", "source": "source_json", "rights": "rights_json", "review": "review_json"}
     json_fields = {"colors", "source", "rights", "review"}
@@ -279,12 +279,12 @@ def update_pattern(pattern_id: str, payload: PatternUpdate) -> Pattern:
             connection.execute(f"UPDATE patterns SET {', '.join(assignments)} WHERE id = ?", [*values, pattern_id])
         row = connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone()
         after = row_to_dict(row)
-        write_audit(connection, pattern_id, "updated", before, after)
+        write_audit(connection, pattern_id, "updated", before, after, actor)
     return Pattern.model_validate(after)
 
 
 @app.patch("/api/v1/admin/patterns/{pattern_id}/evidence", response_model=Pattern, dependencies=[Depends(require_admin)])
-def update_pattern_evidence(pattern_id: str, payload: EvidenceUpdate) -> Pattern:
+def update_pattern_evidence(pattern_id: str, payload: EvidenceUpdate, actor: str = Depends(require_admin)) -> Pattern:
     """Merge source, rights evidence and review notes without replacing unrelated JSON fields."""
     changes = payload.model_dump(exclude_unset=True)
     with database(get_settings()) as connection:
@@ -314,13 +314,13 @@ def update_pattern_evidence(pattern_id: str, payload: EvidenceUpdate) -> Pattern
             (json.dumps(source, ensure_ascii=False), json.dumps(rights, ensure_ascii=False), json.dumps(review, ensure_ascii=False), pattern_id),
         )
         after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone())
-        write_audit(connection, pattern_id, "evidence_updated", before, after)
+        write_audit(connection, pattern_id, "evidence_updated", before, after, actor)
     return Pattern.model_validate(after)
 
 
 @app.post("/api/v1/admin/patterns/{pattern_id}/evidence-files", response_model=Pattern,
           dependencies=[Depends(require_admin)])
-async def upload_evidence_file(pattern_id: str, file: UploadFile = File(...)) -> Pattern:
+async def upload_evidence_file(pattern_id: str, file: UploadFile = File(...), actor: str = Depends(require_admin)) -> Pattern:
     """Store a validated private object and atomically attach its server-issued metadata."""
     settings = get_settings()
     with database(settings) as connection:
@@ -350,7 +350,7 @@ async def upload_evidence_file(pattern_id: str, file: UploadFile = File(...)) ->
                 (json.dumps(rights, ensure_ascii=False), pattern_id),
             )
             after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone())
-            write_audit(connection, pattern_id, "evidence_file_uploaded", before, after)
+            write_audit(connection, pattern_id, "evidence_file_uploaded", before, after, actor)
     except Exception:
         delete_object(stored.storage_key, settings)
         raise
@@ -485,17 +485,17 @@ def get_admin_pattern(pattern_id: str) -> Pattern:
 
 
 @app.post("/api/v1/admin/patterns/{pattern_id}/publish", response_model=Pattern, dependencies=[Depends(require_admin)])
-def publish_pattern(pattern_id: str) -> Pattern:
-    return _publish_pattern(pattern_id)
+def publish_pattern(pattern_id: str, actor: str = Depends(require_admin)) -> Pattern:
+    return _publish_pattern(pattern_id, actor)
 
 
 @app.post("/api/v1/admin/patterns/{pattern_id}/withdraw", response_model=Pattern, dependencies=[Depends(require_admin)])
-def withdraw_pattern(pattern_id: str) -> Pattern:
-    return _withdraw_pattern(pattern_id)
+def withdraw_pattern(pattern_id: str, actor: str = Depends(require_admin)) -> Pattern:
+    return _withdraw_pattern(pattern_id, actor)
 
 
 @app.post("/api/v1/admin/patterns/batch-review", response_model=BatchOperationResponse, dependencies=[Depends(require_admin)])
-def batch_review(payload: BatchReviewRequest) -> BatchOperationResponse:
+def batch_review(payload: BatchReviewRequest, actor: str = Depends(require_admin)) -> BatchOperationResponse:
     results: list[BatchOperationItem] = []
     settings = get_settings()
     for item in payload.items:
@@ -508,7 +508,7 @@ def batch_review(payload: BatchReviewRequest) -> BatchOperationResponse:
                 review = {"issues": item.issues, "reviewedBy": item.reviewedBy, "reviewedAt": item.reviewedAt}
                 connection.execute("UPDATE patterns SET review_json=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (json.dumps(review, ensure_ascii=False), item.patternId))
                 after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (item.patternId,)).fetchone())
-                write_audit(connection, item.patternId, "reviewed", before, after)
+                write_audit(connection, item.patternId, "reviewed", before, after, actor)
             results.append(BatchOperationItem(patternId=item.patternId, status="succeeded", pattern=Pattern.model_validate(after)))
         except Exception as exc:
             code, message = _failure_detail(exc)
@@ -518,7 +518,7 @@ def batch_review(payload: BatchReviewRequest) -> BatchOperationResponse:
 
 
 @app.post("/api/v1/admin/patterns/batch-publish", response_model=BatchOperationResponse, dependencies=[Depends(require_admin)])
-def batch_publish(payload: BatchPublishRequest) -> BatchOperationResponse:
+def batch_publish(payload: BatchPublishRequest, actor: str = Depends(require_admin)) -> BatchOperationResponse:
     results: list[BatchOperationItem] = []
     seen: set[str] = set()
     for pattern_id in payload.patternIds:
@@ -527,7 +527,7 @@ def batch_publish(payload: BatchPublishRequest) -> BatchOperationResponse:
             continue
         seen.add(pattern_id)
         try:
-            pattern = _publish_pattern(pattern_id)
+            pattern = _publish_pattern(pattern_id, actor)
             results.append(BatchOperationItem(patternId=pattern_id, status="succeeded", pattern=pattern))
         except Exception as exc:
             code, message = _failure_detail(exc)

@@ -21,6 +21,7 @@ class Settings:
     s3_access_key: str | None = None
     s3_secret_key: str | None = None
     evidence_max_bytes: int = 10 * 1024 * 1024
+    actor_signing_secret: str | None = None
 
 
 def get_settings() -> Settings:
@@ -33,6 +34,7 @@ def get_settings() -> Settings:
         environment=os.getenv("CATALOG_ENVIRONMENT", "development").strip().lower(),
         admin_token=os.getenv("CATALOG_ADMIN_TOKEN", "dev-only-change-me"),
         cors_origins=tuple(item.strip() for item in origins.split(",") if item.strip()),
+        actor_signing_secret=os.getenv("CATALOG_ACTOR_SIGNING_SECRET", "").strip() or None,
         ai_internal_base_url=os.getenv("CATALOG_AI_INTERNAL_BASE_URL", "").strip().rstrip("/") or None,
         ai_service_token=os.getenv("CATALOG_AI_SERVICE_TOKEN", "").strip() or None,
         ai_sync_timeout_seconds=float(os.getenv("CATALOG_AI_SYNC_TIMEOUT_SECONDS", "5")),
@@ -53,6 +55,8 @@ def validate_settings(settings: Settings) -> None:
         raise RuntimeError("CATALOG_DATABASE_URL is required for PostgreSQL")
     if settings.environment == "production" and (len(settings.admin_token) < 32 or settings.admin_token.startswith(("dev-only", "change-me"))):
         raise RuntimeError("CATALOG_ADMIN_TOKEN must be overridden with a random value of at least 32 characters in production")
+    if settings.environment == "production" and (not settings.actor_signing_secret or len(settings.actor_signing_secret) < 32):
+        raise RuntimeError("CATALOG_ACTOR_SIGNING_SECRET must be at least 32 characters in production")
     if settings.environment == "production" and (not settings.ai_internal_base_url or not settings.ai_service_token):
         raise RuntimeError("CATALOG_AI_INTERNAL_BASE_URL and CATALOG_AI_SERVICE_TOKEN are required in production")
     if settings.ai_sync_timeout_seconds <= 0:

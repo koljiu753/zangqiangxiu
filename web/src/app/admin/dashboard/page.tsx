@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getAdminPatterns } from "@/lib/admin-api";
+import { getCatalogStats } from "@/lib/admin-api";
 import { requireAdmin } from "@/lib/admin-auth-server";
-import type { GovernanceStats } from "@/lib/governance-dashboard";
+import { toGovernanceStats, type GovernanceStats } from "@/lib/governance-dashboard";
 
 export const metadata: Metadata = { title: "数据治理仪表盘" };
 export const dynamic = "force-dynamic";
@@ -21,11 +21,7 @@ export default async function AdminDashboardPage() {
   let stats: GovernanceStats | null = null;
   let loadError = "";
   try {
-    const [all, draft, published, rightsUnverified, hasIssues, ready] = await Promise.all([
-      getAdminPatterns(), getAdminPatterns({ status: "draft" }), getAdminPatterns({ status: "published" }),
-      getAdminPatterns({ risk: "rights_unverified" }), getAdminPatterns({ risk: "has_issues" }), getAdminPatterns({ risk: "ready" }),
-    ]);
-    stats = { total: all.total, draft: draft.total, published: published.total, rightsUnverified: rightsUnverified.total, hasIssues: hasIssues.total, ready: ready.total };
+    stats = toGovernanceStats(await getCatalogStats());
   } catch (error) { loadError = error instanceof Error ? error.message : "未知错误"; }
 
   if (!stats) return <main className="inner-page admin-page"><nav className="admin-breadcrumb"><Link href="/admin">返回运营审核后台</Link></nav><div className="admin-error" role="alert"><h1>无法读取治理统计</h1><p>{loadError}</p></div></main>;

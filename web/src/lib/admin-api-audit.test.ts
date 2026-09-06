@@ -17,9 +17,9 @@ describe("getPatternAuditLogs", () => {
     vi.stubGlobal("fetch", fetcher);
     const { getPatternAuditLogs } = await import("./admin-api");
     await expect(getPatternAuditLogs("pat/一")).resolves.toEqual([]);
-    expect(fetcher).toHaveBeenCalledWith(
-      "http://catalog:8001/api/v1/admin/patterns/pat%2F%E4%B8%80/audit-logs",
-      expect.objectContaining({ cache: "no-store", headers: expect.objectContaining({ "X-Admin-Token": "secret" }) }),
-    );
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://catalog:8001/api/v1/admin/patterns/pat%2F%E4%B8%80/audit-logs");
+    expect(init.cache).toBe("no-store");
+    expect(new Headers(init.headers).get("X-Admin-Token")).toBe("secret");
   });
 });

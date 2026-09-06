@@ -27,6 +27,7 @@ CATALOG_DATABASE_BACKEND=postgresql CATALOG_DATABASE_URL=postgresql://... python
 迁移使用主键 upsert，可安全重复执行；纹样和审计日志在同一 PostgreSQL 事务内提交。
 - `CATALOG_ENVIRONMENT`：设为 `production` 时禁止使用默认管理令牌
 - `CATALOG_ADMIN_TOKEN`：开发管理令牌；默认值仅供本地开发
+- `CATALOG_ACTOR_SIGNING_SECRET`：Web 到 Catalog 的操作者身份签名密钥，生产环境至少 32 字符且必须与管理令牌分离
 - `CATALOG_CORS_ORIGINS`：逗号分隔的前端 Origin，默认 `http://localhost:3000`
 - `CATALOG_AI_INTERNAL_BASE_URL`：AI 服务内部 API 根地址（包含 `/v1`）
 - `CATALOG_AI_SERVICE_TOKEN`：Catalog 调用 AI 内部同步接口的服务令牌
@@ -63,6 +64,8 @@ CATALOG_DATABASE_BACKEND=postgresql CATALOG_DATABASE_URL=postgresql://... python
 ```http
 X-Admin-Token: replace-with-a-long-random-token
 ```
+
+Web 发起的变更请求还会携带经 `CATALOG_ACTOR_SIGNING_SECRET` 做 HMAC-SHA256 签名的 `X-Admin-Actor`、`X-Admin-Timestamp`、`X-Request-ID` 和 `X-Admin-Signature`。签名覆盖时间戳、HTTP 方法、路径、操作者和请求 ID，Catalog 仅接受五分钟窗口内的完整有效签名并将操作者写入审计日志。仅携带管理令牌的维护脚本保持兼容，其审计身份固定为 `service-admin`。
 
 响应的核心字段兼容 Web `Pattern` 类型，并额外保留 `visibility`、`source`、`rights`、`review` 和时间戳。
 

@@ -14,13 +14,14 @@ function New-Secret([int]$Bytes = 32) {
 if (Test-Path -LiteralPath $fullOutput) {
     $existing = Get-Content -LiteralPath $fullOutput -Raw
     $additions = [Collections.Generic.List[string]]::new()
+    if ($existing -notmatch '(?m)^CATALOG_ACTOR_SIGNING_SECRET=') { $additions.Add("CATALOG_ACTOR_SIGNING_SECRET=$(New-Secret 32)") }
     if ($existing -notmatch '(?m)^CATALOG_S3_ACCESS_KEY=') { $additions.Add("CATALOG_S3_ACCESS_KEY=zhixiu-catalog") }
     if ($existing -notmatch '(?m)^CATALOG_S3_SECRET_KEY=') { $additions.Add("CATALOG_S3_SECRET_KEY=$(New-Secret 24)") }
     if ($existing -notmatch '(?m)^CATALOG_S3_PREFIX=') { $additions.Add("CATALOG_S3_PREFIX=production/catalog-evidence") }
     if ($existing -notmatch '(?m)^CATALOG_EVIDENCE_MAX_BYTES=') { $additions.Add("CATALOG_EVIDENCE_MAX_BYTES=10485760") }
     if ($additions.Count -gt 0) {
         [IO.File]::AppendAllText($fullOutput, "`n" + ($additions -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
-        Write-Output "Added newly required Catalog storage settings to: $fullOutput"
+        Write-Output "Added newly required Catalog settings to: $fullOutput"
     } else {
         Write-Output "Environment file already exists and is current: $fullOutput"
     }
@@ -34,6 +35,7 @@ $content = @(
     "PUBLIC_CATALOG_API_BASE_URL=http://localhost:8001/api/v1"
     "PUBLIC_AI_API_BASE_URL=http://localhost:8002/v1"
     "CATALOG_ADMIN_TOKEN=$(New-Secret 32)"
+    "CATALOG_ACTOR_SIGNING_SECRET=$(New-Secret 32)"
     "AI_INTERNAL_TOKEN=$(New-Secret 32)"
     "ADMIN_UI_USER=admin"
     "ADMIN_UI_PASSWORD=$adminPassword"

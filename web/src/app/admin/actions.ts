@@ -22,7 +22,7 @@ export async function savePattern(_: AdminActionState, formData: FormData): Prom
       meaning: String(formData.get("meaning") || "").trim(),
       rights: { ...current.rights, status: String(formData.get("rightsStatus") || "unverified"), owner: String(formData.get("rightsOwner") || "").trim() || null, license: String(formData.get("rightsLicense") || "").trim() || null },
       review: { ...current.review, issues, reviewedBy: principal.subject, reviewedAt: issues.length ? null : new Date().toISOString() },
-    });
+    }, principal.subject);
     revalidatePath("/admin");
     return { ok: true, message: "候选资料已保存" };
   } catch (error) { return { ok: false, message: error instanceof Error ? error.message : "保存失败" }; }
@@ -44,7 +44,7 @@ export async function bulkUpdatePatterns(_: BatchActionState, formData: FormData
     const reviewedAt = new Date().toISOString();
     const response = await batchReviewAdminPatterns(ids.map((patternId) => ({
       patternId, reviewedBy, reviewedAt, issues: issueMode === "clear" ? [] : issues,
-    })));
+    })), principal.subject);
     const results = response.items.map((item) => ({
       id: item.patternId,
       ok: item.status === "succeeded",
@@ -58,12 +58,13 @@ export async function bulkUpdatePatterns(_: BatchActionState, formData: FormData
 }
 
 export async function bulkPublishPatterns(_: BatchActionState, formData: FormData): Promise<BatchActionState> {
-  try { await requireAdmin("publisher", String(formData.get("csrfToken") || "")); }
+  let principal;
+  try { principal = await requireAdmin("publisher", String(formData.get("csrfToken") || "")); }
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : "无权执行此操作", results: [] }; }
   const ids = selectedPatternIds(formData);
   if (!ids.length) return { ok: false, message: "请至少选择一条候选记录", results: [] };
   try {
-    const response = await batchPublishAdminPatterns(ids);
+    const response = await batchPublishAdminPatterns(ids, principal.subject);
     const results = response.items.map((item) => ({
       id: item.patternId,
       ok: item.status === "succeeded",
@@ -77,11 +78,12 @@ export async function bulkPublishPatterns(_: BatchActionState, formData: FormDat
 }
 
 export async function publishPattern(_: AdminActionState, formData: FormData): Promise<AdminActionState> {
-  try { await requireAdmin("publisher", String(formData.get("csrfToken") || "")); }
+  let principal;
+  try { principal = await requireAdmin("publisher", String(formData.get("csrfToken") || "")); }
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : "无权执行此操作" }; }
   const id = String(formData.get("id") || "");
   try {
-    await publishAdminPattern(id);
+    await publishAdminPattern(id, principal.subject);
     revalidatePath("/admin"); revalidatePath("/patterns"); revalidatePath("/");
     return { ok: true, message: "已通过安全校验并公开发布" };
   } catch (error) { return { ok: false, message: error instanceof Error ? error.message : "发布失败" }; }
@@ -102,10 +104,10 @@ export async function saveEvidence(_: AdminActionState, formData: FormData): Pro
   if (file && !["application/pdf", "image/jpeg", "image/png"].includes(file.type.toLowerCase())) return { ok: false, message: "仅支持 PDF、JPEG 或 PNG 凭证" };
   const rightsStatus = field(formData, "rightsStatus") || null;
   try {
-    await updatePatternEvidence(id, { sourceDescription: field(formData, "sourceDescription") || null, originClaim: field(formData, "originClaim") || null, rightsStatus, rightsOwner: field(formData, "rightsOwner") || null, rightsLicense: field(formData, "rightsLicense") || null, verifiedBy: rightsStatus === "verified" ? principal.subject : null, verifiedAt: rightsStatus === "verified" ? new Date().toISOString() : null, verificationNote: field(formData, "verificationNote") || null, reviewNote: field(formData, "reviewNote") || null });
+    await updatePatternEvidence(id, { sourceDescription: field(formData, "sourceDescription") || null, originClaim: field(formData, "originClaim") || null, rightsStatus, rightsOwner: field(formData, "rightsOwner") || null, rightsLicense: field(formData, "rightsLicense") || null, verifiedBy: rightsStatus === "verified" ? principal.subject : null, verifiedAt: rightsStatus === "verified" ? new Date().toISOString() : null, verificationNote: field(formData, "verificationNote") || null, reviewNote: field(formData, "reviewNote") || null }, principal.subject);
   } catch (error) { return { ok: false, message: error instanceof Error ? error.message : "核验资料保存失败" }; }
   if (file) {
-    try { await uploadPatternEvidenceFile(id, file); }
+    try { await uploadPatternEvidenceFile(id, file, principal.subject); }
     catch (error) {
       refreshReview(id);
       const message = error instanceof Error ? error.message : "凭证上传失败";
@@ -116,11 +118,12 @@ export async function saveEvidence(_: AdminActionState, formData: FormData): Pro
 }
 
 export async function assignReview(_: AdminActionState, formData: FormData): Promise<AdminActionState> {
-  try { await requireAdmin("reviewer", field(formData, "csrfToken")); }
+  let principal;
+  try { principal = await requireAdmin("reviewer", field(formData, "csrfToken")); }
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : "无权执行此操作" }; }
   const id = field(formData, "id"), assignee = field(formData, "assignee");
   if (!id || !assignee) return { ok: false, message: "纹样 ID 与审核人均不能为空" };
-  try { const response = await assignReviewTask(id, assignee, `assign_${crypto.randomUUID()}`); const item = response.items[0]; if (!item || item.status === "failed") throw new Error(item?.message || "分配失败"); refreshReview(id); return { ok: true, message: `已分配给 ${assignee}` }; }
+  try { const response = await assignReviewTask(id, assignee, `assign_${crypto.randomUUID()}`, principal.subject); const item = response.items[0]; if (!item || item.status === "failed") throw new Error(item?.message || "分配失败"); refreshReview(id); return { ok: true, message: `已分配给 ${assignee}` }; }
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : "分配失败" }; }
 }
 
@@ -138,6 +141,6 @@ export async function decideReview(_: AdminActionState, formData: FormData): Pro
   const issues = splitIssues(formData.get("decisionIssues"));
   if (decision === "approved" && issues.length) return { ok: false, message: "通过审核时不能保留风险项" };
   if (decision !== "approved" && !issues.length) return { ok: false, message: "退回或拒绝时必须填写风险项" };
-  try { const response = await decideReviewTask(id, decision, principal.subject, field(formData, "decisionNote") || null, issues, `decide_${crypto.randomUUID()}`); const item = response.items[0]; if (!item || item.status === "failed") throw new Error(item?.message || "提交决定失败"); refreshReview(id); return { ok: true, message: "审核决定已记录" }; }
+  try { const response = await decideReviewTask(id, decision, principal.subject, field(formData, "decisionNote") || null, issues, `decide_${crypto.randomUUID()}`, principal.subject); const item = response.items[0]; if (!item || item.status === "failed") throw new Error(item?.message || "提交决定失败"); refreshReview(id); return { ok: true, message: "审核决定已记录" }; }
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : "提交决定失败" }; }
 }

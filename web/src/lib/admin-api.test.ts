@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
 
 vi.mock("server-only", () => ({}));
 
@@ -27,6 +28,25 @@ describe("admin API client", () => {
     );
   });
 
+  it("loads dashboard metrics from the single Catalog stats endpoint", async () => {
+    const payload = { total: 10, statuses: { draft: 8, published: 2 }, rightsStatuses: {}, reviewRisk: { hasIssues: 1, rightsUnverified: 8 }, ready: 1, categories: [] };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { getCatalogStats } = await import("./admin-api");
+    await expect(getCatalogStats()).resolves.toEqual(payload);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://catalog.test/api/v1/admin/patterns/stats");
+  });
+
+  it("proxies Catalog CSV export filters through the server client", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("csv", { status: 200, headers: { "Content-Type": "text/csv" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { exportAdminPatternsCsv } = await import("./admin-api");
+    await exportAdminPatternsCsv({ status: "draft", visibility: "internal_only", risk: "has_issues", limit: 250 });
+    expect(fetchMock.mock.calls[0][0]).toBe("http://catalog.test/api/v1/admin/patterns/export.csv?status=draft&visibility=internal_only&risk=has_issues&limit=250");
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get("X-Admin-Token")).toBe("test-token");
+  });
+
   it("uses one Catalog request for each batch operation", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       succeeded: 1, failed: 1, items: [],
@@ -41,6 +61,22 @@ describe("admin API client", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ items });
     expect(fetchMock.mock.calls[1][0]).toBe("http://catalog.test/api/v1/admin/patterns/batch-publish");
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ patternIds: ["pat_001", "pat_002"] });
+  });
+
+  it("signs the authenticated operator and request id for mutations", async () => {
+    const secret = "actor-secret-that-is-at-least-32-bytes";
+    vi.stubEnv("CATALOG_ACTOR_SIGNING_SECRET", secret);
+    vi.setSystemTime(new Date("2026-09-06T00:00:00Z"));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ succeeded: 1, failed: 0, items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { batchPublishAdminPatterns } = await import("./admin-api");
+    await batchPublishAdminPatterns(["pat_001"], "operator-a");
+    const headers = new Headers(fetchMock.mock.calls[0][1].headers);
+    const timestamp = headers.get("X-Admin-Timestamp")!;
+    const requestId = headers.get("X-Request-ID")!;
+    const canonical = `${timestamp}\nPOST\n/api/v1/admin/patterns/batch-publish\noperator-a\n${requestId}`;
+    expect(headers.get("X-Admin-Actor")).toBe("operator-a");
+    expect(headers.get("X-Admin-Signature")).toBe(createHmac("sha256", secret).update(canonical).digest("hex"));
   });
 
   it("keeps evidence and review workflow calls on the server admin client", async () => {
