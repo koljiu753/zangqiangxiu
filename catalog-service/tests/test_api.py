@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 def client_for(tmp_path, monkeypatch):
     monkeypatch.setenv("CATALOG_DATABASE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CATALOG_ADMIN_TOKEN", "test-token")
+    monkeypatch.setenv("CATALOG_ACTOR_SIGNING_SECRET", "actor-secret-that-is-at-least-32-bytes")
     from app import main
     importlib.reload(main)
     return TestClient(main.app)
@@ -33,13 +34,15 @@ def sample(name="祥云纹", **overrides):
     return payload
 
 
-def approve(client, headers, pattern_id, assignee="专家甲"):
+def approve(client, headers, pattern_id, assignee="reviewer-a"):
     suffix = pattern_id.replace("pat_", "")
-    assigned = client.post("/api/v1/admin/reviews/batch-assign", headers=headers, json={"items": [{
+    assignment_path = "/api/v1/admin/reviews/batch-assign"
+    decision_path = "/api/v1/admin/reviews/batch-decide"
+    assigned = client.post(assignment_path, headers=signed_headers("POST", assignment_path, actor=assignee, request_id=f"http-assign-{suffix}"), json={"items": [{
         "patternId": pattern_id, "assignee": assignee, "requestId": f"assign-{suffix}"
     }]})
     assert assigned.json()["items"][0]["status"] == "succeeded"
-    decided = client.post("/api/v1/admin/reviews/batch-decide", headers=headers, json={"items": [{
+    decided = client.post(decision_path, headers=signed_headers("POST", decision_path, actor=assignee, request_id=f"http-decide-{suffix}"), json={"items": [{
         "patternId": pattern_id, "decision": "approved", "decidedBy": assignee,
         "requestId": f"decide-{suffix}", "issues": []
     }]})

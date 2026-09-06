@@ -1,16 +1,22 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { assignReview, decideReview, saveEvidence, type AdminActionState } from "@/app/admin/actions";
 import type { AdminPattern, ReviewTask } from "@/types/domain";
 
 const initial: AdminActionState = { ok: false, message: "" };
-function Feedback({ state }: { state: AdminActionState }) { return <span className={state.ok ? "action-success" : "action-error"} aria-live="polite">{state.message}</span>; }
+function Feedback({ state }: { state: AdminActionState }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => { if (state.message) ref.current?.focus(); }, [state]);
+  return <span ref={ref} className={state.ok ? "action-success" : "action-error"} role={state.ok ? "status" : "alert"} tabIndex={state.message ? -1 : undefined}>{state.message}</span>;
+}
 
 export function ReviewWorkflowPanel({ pattern, task, csrfToken }: { pattern: AdminPattern; task?: ReviewTask; csrfToken: string }) {
   const [evidenceState, evidenceAction, evidencePending] = useActionState(saveEvidence, initial);
   const [assignState, assignAction, assignPending] = useActionState(assignReview, initial);
   const [decisionState, decisionAction, decisionPending] = useActionState(decideReview, initial);
+  const [decision, setDecision] = useState("");
+  const [decisionConfirmed, setDecisionConfirmed] = useState(false);
   const evidence = pattern.rights.evidence || [];
   return <section className="workflow-panel">
     <article><header><p className="eyebrow">EVIDENCE</p><h2>来源与权利凭证</h2></header>
@@ -25,10 +31,12 @@ export function ReviewWorkflowPanel({ pattern, task, csrfToken }: { pattern: Adm
     <article><header><p className="eyebrow">REVIEW TASK</p><h2>审核任务</h2></header>
       {task ? <dl className="task-summary"><div><dt>审核人</dt><dd>{task.assignee}</dd></div><div><dt>状态</dt><dd><span className={`task-state ${task.state}`}>{task.state}</span></dd></div><div><dt>分配时间</dt><dd>{task.assignedAt}</dd></div>{task.decisionNote && <div><dt>决定说明</dt><dd>{task.decisionNote}</dd></div>}</dl> : <p className="workflow-empty">尚未分配审核任务。</p>}
       <form action={assignAction} className="inline-workflow-form"><input type="hidden" name="id" value={pattern.id}/><input type="hidden" name="csrfToken" value={csrfToken}/><label>分配或改派给<input name="assignee" defaultValue={task?.assignee || ""} required/></label><button disabled={assignPending}>{assignPending ? "分配中…" : task ? "重新分配" : "分配任务"}</button><Feedback state={assignState}/></form>
-      {task && pattern.status === "draft" && <form action={decisionAction} className="workflow-form decision-form"><input type="hidden" name="id" value={pattern.id}/><input type="hidden" name="csrfToken" value={csrfToken}/><label>审核决定<select name="decision" defaultValue="approved"><option value="approved">通过</option><option value="needs_more">退回补充</option><option value="rejected">拒绝</option></select></label><label className="wide">决定说明<textarea name="decisionNote"/></label><label className="wide">风险项（退回/拒绝时必填）<textarea name="decisionIssues" placeholder="多项用逗号或换行分隔"/></label><div className="form-actions wide"><button disabled={decisionPending}>{decisionPending ? "提交中…" : "记录审核决定"}</button><Feedback state={decisionState}/></div></form>}
+      {task && pattern.status === "draft" && <form action={decisionAction} className="workflow-form decision-form"><input type="hidden" name="id" value={pattern.id}/><input type="hidden" name="csrfToken" value={csrfToken}/><label>审核决定<select name="decision" value={decision} required onChange={(event) => { setDecision(event.target.value); setDecisionConfirmed(false); }}><option value="" disabled>请选择审核决定</option><option value="approved">通过</option><option value="needs_more">退回补充</option><option value="rejected">拒绝</option></select></label><label className="wide">决定说明<textarea name="decisionNote"/></label><label className="wide">风险项（退回/拒绝时必填）<textarea name="decisionIssues" placeholder="多项用逗号或换行分隔"/></label>{decision && <label className="decision-confirm wide"><input type="checkbox" checked={decisionConfirmed} onChange={(event) => setDecisionConfirmed(event.target.checked)}/><span>我确认对记录“<strong>{pattern.name || pattern.id}</strong>”提交“<strong>{decisionLabel(decision)}</strong>”决定。</span></label>}<div className="form-actions wide"><button disabled={decisionPending || !decision || !decisionConfirmed}>{decisionPending ? "提交中…" : "确认并记录审核决定"}</button><Feedback state={decisionState}/></div></form>}
     </article>
   </section>;
 }
+
+function decisionLabel(value: string) { return value === "approved" ? "通过" : value === "needs_more" ? "退回补充" : value === "rejected" ? "拒绝" : "未选择"; }
 
 function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;

@@ -101,7 +101,7 @@ def list_review_tasks(
 
 
 @router.post("/batch-assign", response_model=ReviewWorkflowResponse)
-def batch_assign(payload: BatchReviewAssignmentRequest, actor: str = Depends(require_admin)) -> ReviewWorkflowResponse:
+def batch_assign(payload: BatchReviewAssignmentRequest, actor: str = Depends(require_signed_admin)) -> ReviewWorkflowResponse:
     results: list[ReviewWorkflowItem] = []
     for item in payload.items:
         fingerprint = _fingerprint("assign", item.model_dump())
@@ -195,11 +195,16 @@ def bulk_assign_filtered_patterns(
 
 
 @router.post("/batch-decide", response_model=ReviewWorkflowResponse)
-def batch_decide(payload: BatchReviewDecisionRequest, actor: str = Depends(require_admin)) -> ReviewWorkflowResponse:
+def batch_decide(payload: BatchReviewDecisionRequest, actor: str = Depends(require_signed_admin)) -> ReviewWorkflowResponse:
     results: list[ReviewWorkflowItem] = []
     for item in payload.items:
         fingerprint = _fingerprint("decide", item.model_dump())
         try:
+            if item.decidedBy != actor:
+                raise HTTPException(status_code=403, detail={
+                    "code": "actor_mismatch",
+                    "message": "decidedBy must match the verified actor",
+                })
             if item.decision == "approved" and item.issues:
                 raise HTTPException(status_code=422, detail={"code": "invalid_review_decision", "message": "Approved reviews cannot contain issues"})
             if item.decision != "approved" and not item.issues:
@@ -223,11 +228,11 @@ def batch_decide(payload: BatchReviewDecisionRequest, actor: str = Depends(requi
                 before_task = _task(task_row).model_dump()
                 reviewed_at = datetime.now(timezone.utc).isoformat()
                 review = dict(before_pattern.get("review") or {})
-                review.update({"issues": item.issues, "reviewedBy": item.decidedBy, "reviewedAt": reviewed_at})
+                review.update({"issues": item.issues, "reviewedBy": actor, "reviewedAt": reviewed_at})
                 connection.execute("UPDATE patterns SET review_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (json.dumps(review, ensure_ascii=False), item.patternId))
                 connection.execute(
                     "UPDATE review_tasks SET state=?,decision_note=?,decided_by=?,decided_at=? WHERE pattern_id=?",
-                    (item.decision, item.note, item.decidedBy, reviewed_at, item.patternId),
+                    (item.decision, item.note, actor, reviewed_at, item.patternId),
                 )
                 task_row = connection.execute("SELECT * FROM review_tasks WHERE pattern_id=?", (item.patternId,)).fetchone()
                 task = _task(task_row)

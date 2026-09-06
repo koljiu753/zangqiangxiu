@@ -68,6 +68,25 @@ def write_audit(connection, pattern_id: str, action: str, before: dict | None, a
     )
 
 
+def invalidate_review_decision(connection, pattern_id: str, actor: str) -> bool:
+    """Reset a completed review when the content it covered changes."""
+    row = connection.execute("SELECT * FROM review_tasks WHERE pattern_id=?", (pattern_id,)).fetchone()
+    if row is None or row["state"] == "assigned":
+        return False
+    before = dict(row)
+    for key in ("assigned_at", "decided_at"):
+        before[key] = timestamp_value(before.get(key)) if before.get(key) is not None else None
+    connection.execute(
+        "UPDATE review_tasks SET state='assigned',decision_note=NULL,assigned_at=CURRENT_TIMESTAMP,decided_by=NULL,decided_at=NULL WHERE pattern_id=?",
+        (pattern_id,),
+    )
+    after = dict(connection.execute("SELECT * FROM review_tasks WHERE pattern_id=?", (pattern_id,)).fetchone())
+    for key in ("assigned_at", "decided_at"):
+        after[key] = timestamp_value(after.get(key)) if after.get(key) is not None else None
+    write_audit(connection, pattern_id, "review_invalidated", before, after, actor)
+    return True
+
+
 def _publish_pattern(pattern_id: str, actor: str = "service-admin") -> Pattern:
     settings = get_settings()
     with database(settings) as connection:
@@ -95,6 +114,9 @@ def _publish_pattern(pattern_id: str, actor: str = "service-admin") -> Pattern:
 
     try:
         with database(settings) as connection:
+            current_task = connection.execute("SELECT state FROM review_tasks WHERE pattern_id=?", (pattern_id,)).fetchone()
+            if current_task is None or current_task["state"] != "approved":
+                raise HTTPException(status_code=409, detail={"code": "review_changed_during_publish", "message": "Review approval changed; retry after review"})
             connection.execute("UPDATE patterns SET status='published', visibility='public', updated_at=CURRENT_TIMESTAMP WHERE id=?", (pattern_id,))
             after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone())
             write_audit(connection, pattern_id, "published", before, {**after, "aiSync": sync_status}, actor)
@@ -275,6 +297,7 @@ def update_pattern(pattern_id: str, payload: PatternUpdate, actor: str = Depends
         ):
             raise HTTPException(status_code=409, detail={"code": "invalid_publication_transition", "message": "Use the dedicated publish or withdraw endpoint"})
         ensure_publishable(combined)
+        content_changed = any(before.get(key) != value for key, value in changes.items())
         if changes:
             assignments, values = [], []
             for key, value in changes.items():
@@ -285,6 +308,8 @@ def update_pattern(pattern_id: str, payload: PatternUpdate, actor: str = Depends
         row = connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone()
         after = row_to_dict(row)
         write_audit(connection, pattern_id, "updated", before, after, actor)
+        if content_changed:
+            invalidate_review_decision(connection, pattern_id, actor)
     return Pattern.model_validate(after)
 
 
@@ -320,6 +345,8 @@ def update_pattern_evidence(pattern_id: str, payload: EvidenceUpdate, actor: str
         )
         after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone())
         write_audit(connection, pattern_id, "evidence_updated", before, after, actor)
+        if any(after[key] != before[key] for key in ("source", "rights", "review")):
+            invalidate_review_decision(connection, pattern_id, actor)
     return Pattern.model_validate(after)
 
 
@@ -356,6 +383,7 @@ async def upload_evidence_file(pattern_id: str, file: UploadFile = File(...), ac
             )
             after = row_to_dict(connection.execute("SELECT * FROM patterns WHERE id = ?", (pattern_id,)).fetchone())
             write_audit(connection, pattern_id, "evidence_file_uploaded", before, after, actor)
+            invalidate_review_decision(connection, pattern_id, actor)
     except Exception:
         delete_object(stored.storage_key, settings)
         raise

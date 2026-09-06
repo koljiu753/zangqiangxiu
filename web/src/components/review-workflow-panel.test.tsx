@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewWorkflowPanel } from "./review-workflow-panel";
 import type { AdminPattern } from "@/types/domain";
@@ -26,5 +26,21 @@ describe("ReviewWorkflowPanel evidence upload", () => {
     expect(screen.queryByText("private/key")).not.toBeInTheDocument();
     expect(container.querySelector('input[name="evidenceStorageKey"]')).toBeNull();
     expect(screen.getByText(/2.0 KiB/)).toBeInTheDocument();
+  });
+
+  it("requires an explicit decision and record-specific confirmation", () => {
+    render(<ReviewWorkflowPanel pattern={pattern} task={{ patternId: pattern.id, assignee: "专家甲", state: "assigned", assignedAt: "2026-09-06" }} csrfToken="csrf" />);
+    const decision = screen.getByRole("combobox", { name: "审核决定" });
+    const submit = screen.getByRole("button", { name: "确认并记录审核决定" });
+    expect(decision).toHaveValue("");
+    expect(submit).toBeDisabled();
+    fireEvent.change(decision, { target: { value: "approved" } });
+    expect(screen.getByText(/我确认对记录/)).toHaveTextContent("测试纹样");
+    expect(screen.getByText(/我确认对记录/)).toHaveTextContent("通过");
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /我确认对记录/ }));
+    expect(submit).toBeEnabled();
+    fireEvent.change(decision, { target: { value: "rejected" } });
+    expect(submit).toBeDisabled();
   });
 });

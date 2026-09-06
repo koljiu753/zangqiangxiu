@@ -73,6 +73,8 @@ Web 发起的变更请求还会携带经 `CATALOG_ACTOR_SIGNING_SECRET` 做 HMAC
 
 来源与版权治理信息继续存放在既有 JSON/JSONB 字段中，因此旧数据无需迁移；缺失的新字段会使用兼容默认值。`source.description` 保存来源说明，`rights.evidence[]` 保存附件元数据（文件 ID、名称、类型、大小、存储键、SHA-256 和备注），真实文件由上传接口写入私有 S3/MinIO 前缀。服务端生成对象键和文件 ID，并以文件魔数校验 PDF/JPEG/PNG，默认大小上限 10 MiB；SHA-256 由服务端对实际字节计算，不能由客户端伪造。`rights.verifiedBy/verifiedAt/verificationNote` 保存版权核验事实，`review.note` 保存内部审核备注。元数据更新接口采用字段合并语义并写入 `evidence_updated`；真实文件上传写入 `evidence_file_uploaded` 审计记录。
 
+审核结论只覆盖审核当时的内容。普通资料、来源与权属元数据或真实凭证文件发生实际变化时，已有 `approved`、`rejected` 或 `needs_more` 任务会原子重置为 `assigned`，清空决定备注、决定人和决定时间，并写入包含任务前后快照的 `review_invalidated` 审计；完全相同的重复提交不会让结论失效。发布流程在最终数据库写入前再次确认任务仍为 `approved`，避免审核后并发修改被公开。系统不会因此自动批准或发布。
+
 下载接口不会暴露预签名地址或对象存储凭证，只允许管理员令牌鉴权后通过 Catalog 代理读取已登记在该纹样下的对象；响应设置 `private, no-store` 和 `nosniff`。Catalog 使用独立于 AI 的 `CATALOG_S3_ACCESS_KEY` 身份，MinIO 策略只允许访问 `CATALOG_S3_PREFIX` 下的对象。可用 `CATALOG_EVIDENCE_MAX_BYTES` 调整上传上限。
 
 公开 API 会清空 `rights.evidence`、`rights.verificationNote` 和 `review.note`，避免泄露内部存储位置与审核意见；管理员 API 保留完整数据。已公开记录不能通过凭证接口把版权状态降为未核验，必须先撤回公开状态。

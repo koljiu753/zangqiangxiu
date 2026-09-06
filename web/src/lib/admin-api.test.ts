@@ -90,14 +90,15 @@ describe("admin API client", () => {
   });
 
   it("keeps evidence and review workflow calls on the server admin client", async () => {
+    vi.stubEnv("CATALOG_ACTOR_SIGNING_SECRET", "actor-secret-that-is-at-least-32-bytes");
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ succeeded: 1, failed: 0, items: [] }), { status: 200, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
     const { updatePatternEvidence, getReviewTasks, assignReviewTask, bulkAssignReviewTasks, decideReviewTask } = await import("./admin-api");
     await updatePatternEvidence("pat_001", { sourceDescription: "馆藏采集" });
     await getReviewTasks({ assignee: "专家甲", state: "assigned" });
-    await assignReviewTask("pat_001", "专家甲", "assign_request_001");
-    await bulkAssignReviewTasks({ patternIds: ["pat_002"], assignee: "专家乙", requestId: "bulk_assign_request_002" });
-    await decideReviewTask("pat_001", "approved", "专家甲", "通过", [], "decide_request_001");
+    await assignReviewTask("pat_001", "reviewer-a", "assign_request_001", "operator-a");
+    await bulkAssignReviewTasks({ patternIds: ["pat_002"], assignee: "reviewer-b", requestId: "bulk_assign_request_002" }, "operator-a");
+    await decideReviewTask("pat_001", "approved", "operator-a", "通过", [], "decide_request_001", "operator-a");
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
       "http://catalog.test/api/v1/admin/patterns/pat_001/evidence",
       "http://catalog.test/api/v1/admin/reviews/tasks?assignee=%E4%B8%93%E5%AE%B6%E7%94%B2&state=assigned",
@@ -105,7 +106,8 @@ describe("admin API client", () => {
       "http://catalog.test/api/v1/admin/reviews/bulk-assign",
       "http://catalog.test/api/v1/admin/reviews/batch-decide",
     ]);
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ patternIds: ["pat_002"], assignee: "专家乙", requestId: "bulk_assign_request_002" });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ patternIds: ["pat_002"], assignee: "reviewer-b", requestId: "bulk_assign_request_002" });
+    for (const index of [2, 3, 4]) expect(new Headers(fetchMock.mock.calls[index][1].headers).get("X-Admin-Actor")).toBe("operator-a");
     for (const call of fetchMock.mock.calls) expect(new Headers(call[1].headers).get("X-Admin-Token")).toBe("test-token");
   });
 

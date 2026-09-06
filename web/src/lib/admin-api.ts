@@ -160,18 +160,18 @@ export function getReviewQueuePatterns(filters: { queue?: ReviewQueueKind; page?
   return adminRequest<CatalogReviewQueuePage>(`/admin/review-queues/patterns?${query}`);
 }
 
-export function assignReviewTask(patternId: string, assignee: string, requestId: string, actor?: string) {
+export function assignReviewTask(patternId: string, assignee: string, requestId: string, actor: string) {
   return batchAssignReviewTasks([{ patternId, assignee, requestId }], actor);
 }
 
-export function batchAssignReviewTasks(items: ReviewAssignmentInput[], actor?: string) {
+export function batchAssignReviewTasks(items: ReviewAssignmentInput[], actor: string) {
   return adminRequest<ReviewWorkflowResponse>("/admin/reviews/batch-assign", { method: "POST", body: JSON.stringify({ items }) }, actor);
 }
 
-export function bulkAssignReviewTasks(payload: BulkReviewAssignmentInput, actor?: string) {
+export function bulkAssignReviewTasks(payload: BulkReviewAssignmentInput, actor: string) {
   return adminRequest<ReviewWorkflowResponse>("/admin/reviews/bulk-assign", { method: "POST", body: JSON.stringify(payload) }, actor);
 }
 
-export function decideReviewTask(patternId: string, decision: ReviewTask["state"], decidedBy: string, note: string | null, issues: string[], requestId: string, actor?: string) {
+export function decideReviewTask(patternId: string, decision: ReviewTask["state"], decidedBy: string, note: string | null, issues: string[], requestId: string, actor: string) {
   return adminRequest<ReviewWorkflowResponse>("/admin/reviews/batch-decide", { method: "POST", body: JSON.stringify({ items: [{ patternId, decision, decidedBy, note, issues, requestId }] }) }, actor);
 }
