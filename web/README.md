@@ -23,7 +23,7 @@ npm run dev
 
 ```dotenv
 NEXT_PUBLIC_CATALOG_API_BASE_URL=http://localhost:8001/api/v1
-NEXT_PUBLIC_AI_API_BASE_URL=http://localhost:8000/v1
+NEXT_PUBLIC_AI_API_BASE_URL=http://localhost:8002/v1
 NEXT_PUBLIC_ALLOW_DEMO_FALLBACK=true
 CATALOG_API_INTERNAL_BASE_URL=http://localhost:8001/api/v1
 CATALOG_ADMIN_TOKEN=replace-with-the-catalog-service-token

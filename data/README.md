@@ -21,13 +21,13 @@
 在项目根目录执行：
 
 ```powershell
-python data/scripts/asset_inventory.py "C:\Users\Fengxt\Desktop\非遗大创\藏羌绣.zip"
+python data/scripts/asset_inventory.py "<path-to-legacy-archive.zip>"
 python data/scripts/extract_legacy.py
 python data/scripts/audit_legacy_content.py --tianma C:\path\to\tianmawenku --zhixiu C:\path\to\zhixiuxiangcun
 python data/scripts/clean_candidates.py data/output/legacy/legacy_candidates.csv
 python data/scripts/reconcile_legacy_assets.py data/output/local-zip/assets.csv data/output/legacy/legacy_candidates.csv
 python data/scripts/select_mvd_candidates.py data/output/local-zip/assets.csv --duplicates data/output/local-zip/duplicates.json
-python data/scripts/materialize_mvd_assets.py "C:\Users\Fengxt\Desktop\非遗大创\藏羌绣.zip" data/output/mvd/catalog_seed.csv
+python data/scripts/materialize_mvd_assets.py "<path-to-legacy-archive.zip>" data/output/mvd/catalog_seed.csv
 python -m unittest discover -s data/tests -v
 ```
 

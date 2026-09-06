@@ -16,6 +16,7 @@ describe("StudioDemo", () => {
     render(<StudioDemo />);
     fireEvent.change(screen.getByLabelText("选择纹样图片"), { target: { files: [new File(["image"], "sample.png", { type: "image/png" })] } });
     expect(screen.getByAltText("待分析纹样预览")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
     await waitFor(() => expect(screen.getByText("万字纹")).toBeInTheDocument());
     expect(screen.getByText("91.2% 相似")).toBeInTheDocument();
@@ -28,6 +29,7 @@ describe("StudioDemo", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "AI 暂不可用" }), { status: 502 })));
     render(<StudioDemo />);
     fireEvent.change(screen.getByLabelText("选择纹样图片"), { target: { files: [new File(["x"], "x.png", { type: "image/png" })] } });
+    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "开始识别" }));
     await waitFor(() => expect(screen.getByText("AI 暂不可用")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "重新分析" })).toBeInTheDocument();

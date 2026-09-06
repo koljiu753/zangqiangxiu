@@ -8,10 +8,10 @@ FastAPI AI任务服务骨架。当前已经真实实现图片上传、内容校�
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload --port 8002
 ```
 
-访问 `http://127.0.0.1:8001/docs` 查看OpenAPI交互文档。
+访问 `http://127.0.0.1:8002/docs` 查看 OpenAPI 交互文档。
 
 ## API流程
 
@@ -69,7 +69,7 @@ Content-Type: application/json
 ```powershell
 python -m app.bulk_index `
   --manifest ../data/output/mvd/asset_manifest.json `
-  --base-url http://127.0.0.1:8001 `
+  --base-url http://127.0.0.1:8002 `
   --report data/mvd_index_report.json
 ```
 

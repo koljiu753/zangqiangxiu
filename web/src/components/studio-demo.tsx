@@ -14,6 +14,7 @@ export function StudioDemo() {
   const [stage, setStage] = useState<Stage>("idle");
   const [message, setMessage] = useState("等待上传纹样图片");
   const [result, setResult] = useState<AnalysisResult>();
+  const [consented, setConsented] = useState(false);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
@@ -56,7 +57,8 @@ export function StudioDemo() {
         <p>系统会提取真实色板，并在经过权限控制的参考库中检索相似纹样。</p>
         {previewUrl && <div className="studio-preview"><Image src={previewUrl} alt="待分析纹样预览" fill sizes="(max-width: 800px) 90vw, 45vw" unoptimized /></div>}
         <input aria-label="选择纹样图片" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => chooseFile(event.target.files?.[0])} />
-        <button disabled={busy} onClick={analyze}>{busy ? "分析中…" : stage === "failed" ? "重新分析" : "开始识别"}</button>
+        <label className="upload-consent"><input type="checkbox" checked={consented} onChange={(event) => setConsented(event.target.checked)} />我已阅读并同意<Link href="/privacy">图片处理与隐私说明</Link>，并确认有权上传该图片。</label>
+        <button disabled={busy || !consented} onClick={analyze}>{busy ? "分析中…" : stage === "failed" ? "重新分析" : "开始识别"}</button>
       </div>
       <aside><p className="eyebrow">TASK STATUS</p><h3>分析状态</h3><p aria-live="polite" className={`studio-status ${stage}`}>{message}</p><dl>
         <div><dt>安全上传</dt><dd>{stage === "idle" ? "等待" : "已提交"}</dd></div>
