@@ -1,6 +1,6 @@
 import "server-only";
 import { createHmac, randomUUID } from "node:crypto";
-import type { AdminPattern, PatternAuditLog, PatternPage, ReviewTask, RightsEvidence } from "@/types/domain";
+import type { AdminPattern, CatalogReviewQueuePage, CatalogReviewQueueSummary, PatternAuditLog, PatternPage, ReviewQueueKind, ReviewTask, RightsEvidence } from "@/types/domain";
 
 export type BatchReviewInput = { patternId: string; reviewedBy: string; reviewedAt: string; issues: string[] };
 export type BatchOperationResponse = {
@@ -126,6 +126,8 @@ export function getPatternAuditLogs(id: string) {
 
 export type EvidenceUpdateInput = { sourceDescription?: string | null; originClaim?: string | null; rightsStatus?: string | null; rightsOwner?: string | null; rightsLicense?: string | null; evidence?: RightsEvidence[]; verifiedBy?: string | null; verifiedAt?: string | null; verificationNote?: string | null; reviewNote?: string | null };
 export type ReviewWorkflowResponse = { succeeded: number; failed: number; items: Array<{ patternId: string; status: "succeeded" | "failed"; code?: string | null; message?: string | null; replayed: boolean; task?: ReviewTask | null }> };
+export type ReviewAssignmentInput = { patternId: string; assignee: string; requestId: string };
+export type BulkReviewAssignmentInput = { patternIds: string[]; assignee: string; requestId: string };
 
 export function updatePatternEvidence(id: string, payload: EvidenceUpdateInput, actor?: string) {
   return adminRequest<AdminPattern>(`/admin/patterns/${encodeURIComponent(id)}/evidence`, { method: "PATCH", body: JSON.stringify(payload) }, actor);
@@ -149,8 +151,25 @@ export function getReviewTasks(filters: { assignee?: string; state?: ReviewTask[
   return adminRequest<ReviewTask[]>(`/admin/reviews/tasks${query.size ? `?${query}` : ""}`);
 }
 
+export function getReviewQueueSummary() { return adminRequest<CatalogReviewQueueSummary>("/admin/review-queues/summary"); }
+
+export function getReviewQueuePatterns(filters: { queue?: ReviewQueueKind; page?: number; q?: string; suggestion?: string } = {}) {
+  const query = new URLSearchParams({ queue: filters.queue || "all", page: String(filters.page || 1), pageSize: "20" });
+  if (filters.q) query.set("q", filters.q);
+  if (filters.suggestion) query.set("suggestion", filters.suggestion);
+  return adminRequest<CatalogReviewQueuePage>(`/admin/review-queues/patterns?${query}`);
+}
+
 export function assignReviewTask(patternId: string, assignee: string, requestId: string, actor?: string) {
-  return adminRequest<ReviewWorkflowResponse>("/admin/reviews/batch-assign", { method: "POST", body: JSON.stringify({ items: [{ patternId, assignee, requestId }] }) }, actor);
+  return batchAssignReviewTasks([{ patternId, assignee, requestId }], actor);
+}
+
+export function batchAssignReviewTasks(items: ReviewAssignmentInput[], actor?: string) {
+  return adminRequest<ReviewWorkflowResponse>("/admin/reviews/batch-assign", { method: "POST", body: JSON.stringify({ items }) }, actor);
+}
+
+export function bulkAssignReviewTasks(payload: BulkReviewAssignmentInput, actor?: string) {
+  return adminRequest<ReviewWorkflowResponse>("/admin/reviews/bulk-assign", { method: "POST", body: JSON.stringify(payload) }, actor);
 }
 
 export function decideReviewTask(patternId: string, decision: ReviewTask["state"], decidedBy: string, note: string | null, issues: string[], requestId: string, actor?: string) {

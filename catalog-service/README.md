@@ -52,6 +52,8 @@ CATALOG_DATABASE_BACKEND=postgresql CATALOG_DATABASE_URL=postgresql://... python
 - `GET /api/v1/admin/patterns`，支持 `status`、`visibility`、`risk` 筛选
 - `GET /api/v1/admin/patterns/{id}`，读取内部候选详情
 - `GET /api/v1/admin/patterns/stats?categoryTop=10`，读取数据治理汇总和高频分类
+- `GET /api/v1/admin/review-queues/summary?lowResolutionEdge=256`，汇总低清、名称待核、重复名称、待分类和分类建议数量
+- `GET /api/v1/admin/review-queues/patterns?queue=low_resolution&page=1&pageSize=20`，分页读取专项审核队列；`queue` 还支持 `all`、`name_review`、`duplicate_name`、`uncategorized`、`category_suggestion`，并可用 `q` 和 `suggestion` 筛选
 - `GET /api/v1/admin/patterns/export.csv?status=draft&visibility=internal_only&risk=rights_unverified&limit=1000`，导出筛选结果
 - `POST /api/v1/admin/patterns/{id}/publish`，执行安全发布
 - `POST /api/v1/admin/patterns/{id}/withdraw`，先从 AI 撤回，再将 Catalog 恢复为草稿/内部状态
@@ -92,6 +94,8 @@ python -m app.review_readiness --database catalog.db --apply
 命令应从 `catalog-service` 目录运行；默认报告目录是 `data/output/mvd/review-readiness/`，也可用 `--seed`、`--output` 和 `--low-res-edge` 覆盖。输出不含生成时间，记录和风险均稳定排序，便于重复运行与版本比较。
 
 `--apply` 仅把 locator、原始路径、对象键、哈希、字节数和尺寸合并到 `source_json.seedProvenance`，且只处理数据库中已存在的 pattern；它不会写分类正式字段，因为当前 schema 没有独立“分类建议”列，也绝不会修改名称、rights、review、状态、可见性、批准或发布。实际变更会写入 `audit_logs`，相同输入再次运行不会重复写入。
+
+专项审核队列是管理员只读接口，不产生审计或数据库写入。低清判断读取 `source.seedProvenance.width/height`（缺失尺寸也进入低清待核），重复名称会忽略空白和大小写；待分类只检查正式分类是否为空、`待分类`、`未分类` 或 `unknown`。分类建议仅从 `seedProvenance.categorySuggestion`、`categorySuggestionCode/Label`、`motifCodeDraft` 或 legacy category 元数据派生并单独返回，绝不覆盖正式 `category`，也不修改 rights、review、status、visibility 或审核任务。
 
 CSV 导出与管理列表共用 `status`、`visibility`、`risk` 筛选定义，默认最多 1000 行、硬上限 5000 行，并通过 `X-Exported-Rows` 返回本次行数。文件采用带 BOM 的 UTF-8，复杂字段序列化为 JSON；以 `= + - @` 或控制字符开头的文本会转义为普通文本，防止 Excel 等表格程序执行公式。导出接口仅接受管理员令牌且响应禁止缓存。
 

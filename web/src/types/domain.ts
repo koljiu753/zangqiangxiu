@@ -15,6 +15,16 @@ export type Pattern = {
 
 export type RightsEvidence = { id: string; filename: string; contentType?: string | null; sizeBytes?: number | null; storageKey?: string | null; url?: string | null; checksumSha256?: string | null; note?: string | null };
 export type ReviewTask = { patternId: string; assignee: string; state: "assigned" | "approved" | "rejected" | "needs_more"; decisionNote?: string | null; assignedAt: string; decidedBy?: string | null; decidedAt?: string | null };
+export type ReviewQueueKind = "all" | "low_resolution" | "name_review" | "duplicate_name" | "uncategorized" | "category_suggestion";
+export type CatalogReviewQueueItem = {
+  patternId: string; name: string; category: string; imageUrl?: string | null;
+  status: "draft" | "published" | "archived"; visibility: "internal_only" | "public";
+  width?: number | null; height?: number | null; lowResolution: boolean; nameNeedsReview: boolean;
+  duplicateName: boolean; duplicateNameCount: number; categoryNeedsReview: boolean;
+  categorySuggestionCode?: string | null; categorySuggestionLabel?: string | null;
+};
+export type CatalogReviewQueuePage = { items: CatalogReviewQueueItem[]; page: number; pageSize: number; total: number; pages: number };
+export type CatalogReviewQueueSummary = { total: number; lowResolution: number; nameNeedsReview: number; duplicateName: number; uncategorized: number; categorySuggestion: number; lowResolutionEdge: number };
 
 export type AdminPattern = Pattern & {
   status: "draft" | "published" | "archived";

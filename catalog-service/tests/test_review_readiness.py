@@ -48,7 +48,12 @@ def test_apply_only_merges_source_and_is_idempotent(tmp_path):
     assert pattern["status"] == "draft" and pattern["visibility"] == "internal_only"
     assert json.loads(pattern["rights_json"]) == {"status": "unverified"}
     assert pattern["category"] == "待分类"
-    assert json.loads(pattern["source_json"])["seedProvenance"]["sha256"] == "a" * 64
+    provenance = json.loads(pattern["source_json"])["seedProvenance"]
+    assert provenance["sha256"] == "a" * 64
+    assert provenance["candidateName"] == "云纹"
+    assert "canonicalName" not in provenance
+    assert provenance["categorySuggestion"] == {"code": "geometry", "label": "几何"}
+    assert "name_needs_review" in provenance["riskFlags"]
     assert logs == 1
 
 

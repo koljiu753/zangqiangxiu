@@ -40,7 +40,7 @@
 
 详见 [本地运行手册](RUNBOOK.md)、[容器部署说明](DEPLOYMENT.md) 与 [旧站内容迁移说明](data/LEGACY_CONTENT_MIGRATION.md)。
 
-v0.3.0 的自动化与运行态验收结果、已完成边界及公网上线所需外部条件见 [交付验收记录](ACCEPTANCE.md)。
+v0.4.0 的自动化与运行态验收结果、已完成边界及公网上线所需外部条件见 [交付验收记录](ACCEPTANCE.md)。
 
 ## 发布门禁
 

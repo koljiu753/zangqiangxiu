@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assignReviewTask, batchPublishAdminPatterns, batchReviewAdminPatterns, decideReviewTask, getAdminPattern, getReviewTasks, publishAdminPattern, updateAdminPattern, updatePatternEvidence, uploadPatternEvidenceFile } from "@/lib/admin-api";
+import { assignReviewTask, batchPublishAdminPatterns, batchReviewAdminPatterns, bulkAssignReviewTasks, decideReviewTask, getAdminPattern, getReviewTasks, publishAdminPattern, updateAdminPattern, updatePatternEvidence, uploadPatternEvidenceFile } from "@/lib/admin-api";
 import { requireAdmin } from "@/lib/admin-auth-server";
 import { selectedPatternIds, splitIssues, summarizeBatch, type BatchActionState } from "@/lib/admin-bulk";
+import type { ReviewAssignmentState } from "@/components/review-queue-board";
 
 export type AdminActionState = { ok: boolean; message: string };
 
@@ -34,6 +35,7 @@ export async function bulkUpdatePatterns(_: BatchActionState, formData: FormData
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : "无权执行此操作", results: [] }; }
   const ids = selectedPatternIds(formData);
   if (!ids.length) return { ok: false, message: "请至少选择一条候选记录", results: [] };
+  if (ids.length > 50) return { ok: false, message: "单次最多分派 50 条候选记录", results: [] };
 
   const reviewedBy = principal.subject;
   const issueMode = String(formData.get("bulkIssueMode") || "replace");
@@ -125,6 +127,24 @@ export async function assignReview(_: AdminActionState, formData: FormData): Pro
   if (!id || !assignee) return { ok: false, message: "纹样 ID 与审核人均不能为空" };
   try { const response = await assignReviewTask(id, assignee, `assign_${crypto.randomUUID()}`, principal.subject); const item = response.items[0]; if (!item || item.status === "failed") throw new Error(item?.message || "分配失败"); refreshReview(id); return { ok: true, message: `已分配给 ${assignee}` }; }
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : "分配失败" }; }
+}
+
+export async function bulkAssignReviews(_: ReviewAssignmentState, formData: FormData): Promise<ReviewAssignmentState> {
+  let principal;
+  try { principal = await requireAdmin("reviewer", field(formData, "csrfToken")); }
+  catch (error) { return { ok: false, message: error instanceof Error ? error.message : "无权执行此操作", results: [] }; }
+  const ids = selectedPatternIds(formData);
+  if (!ids.length) return { ok: false, message: "请至少选择一条候选记录", results: [] };
+  const assignee = field(formData, "assignee");
+  if (!assignee) return { ok: false, message: "审核人不能为空", results: [] };
+  if (assignee.length > 120) return { ok: false, message: "审核人标识不能超过 120 个字符", results: [] };
+  try {
+    const response = await bulkAssignReviewTasks({ patternIds: ids, assignee, requestId: `bulk_assign_${crypto.randomUUID()}` }, principal.subject);
+    const results = response.items.map((item) => ({ id: item.patternId, ok: item.status === "succeeded", message: item.status === "succeeded" ? `已分配给 ${assignee}` : item.message || item.code || "分配失败" }));
+    revalidatePath("/admin/review");
+    revalidatePath("/admin/dashboard");
+    return summarizeBatch(results, "批量分派");
+  } catch (error) { return { ok: false, message: error instanceof Error ? error.message : "批量分派失败", results: [] }; }
 }
 
 export async function decideReview(_: AdminActionState, formData: FormData): Promise<AdminActionState> {

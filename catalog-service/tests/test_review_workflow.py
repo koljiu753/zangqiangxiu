@@ -1,4 +1,7 @@
 import importlib
+import hashlib
+import hmac
+import time
 
 from fastapi.testclient import TestClient
 
@@ -6,10 +9,21 @@ from fastapi.testclient import TestClient
 def client_for(tmp_path, monkeypatch):
     monkeypatch.setenv("CATALOG_DATABASE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("CATALOG_ADMIN_TOKEN", "test-token")
+    monkeypatch.setenv("CATALOG_ACTOR_SIGNING_SECRET", "actor-secret-that-is-at-least-32-bytes")
     monkeypatch.delenv("CATALOG_DATABASE_URL", raising=False)
     from app import main
     importlib.reload(main)
     return TestClient(main.app)
+
+
+def signed_headers(method: str, path: str, request_id: str, actor: str = "assignment-manager"):
+    timestamp = str(int(time.time()))
+    canonical = f"{timestamp}\n{method}\n{path}\n{actor}\n{request_id}"
+    signature = hmac.new(b"actor-secret-that-is-at-least-32-bytes", canonical.encode(), hashlib.sha256).hexdigest()
+    return {
+        "X-Admin-Token": "test-token", "X-Admin-Actor": actor, "X-Admin-Timestamp": timestamp,
+        "X-Admin-Signature": signature, "X-Request-ID": request_id,
+    }
 
 
 def sample(pattern_id: str, *, rights="verified"):
@@ -127,3 +141,47 @@ def test_published_pattern_cannot_reenter_review(tmp_path, monkeypatch):
             "patternId": "pat_review_flow_4", "assignee": "专家甲", "requestId": "assign-flow-005"
         }]}).json()
         assert response["items"][0]["code"] == "review_not_editable"
+
+
+def test_bulk_assign_requires_signature_is_bounded_idempotent_and_assignment_only(tmp_path, monkeypatch):
+    path = "/api/v1/admin/reviews/bulk-assign"
+    with client_for(tmp_path, monkeypatch) as client:
+        admin = {"X-Admin-Token": "test-token"}
+        for pattern_id in ("pat_bulk_safe_1", "pat_bulk_safe_2"):
+            client.post("/api/v1/admin/patterns", headers=admin, json=sample(pattern_id))
+        payload = {
+            "patternIds": ["pat_bulk_safe_1", "pat_missing_bulk", "pat_bulk_safe_2"],
+            "assignee": "专家丙", "requestId": "bulk-safe-001",
+        }
+        assert client.post(path, headers=admin, json=payload).status_code == 401
+
+        headers = signed_headers("POST", path, "http-request-bulk-001")
+        first = client.post(path, headers=headers, json=payload)
+        assert first.status_code == 200
+        assert (first.json()["succeeded"], first.json()["failed"]) == (2, 1)
+        assert all(item.get("task", {}).get("state") == "assigned" for item in first.json()["items"] if item["status"] == "succeeded")
+
+        replay = client.post(path, headers=signed_headers("POST", path, "http-request-bulk-002"), json=payload)
+        assert replay.status_code == 200
+        assert all(item["replayed"] for item in replay.json()["items"])
+        conflict = client.post(path, headers=signed_headers("POST", path, "http-request-bulk-003"), json={
+            **payload, "patternIds": ["pat_bulk_safe_1"]
+        })
+        assert conflict.status_code == 409
+
+        pattern = client.get("/api/v1/admin/patterns/pat_bulk_safe_1", headers=admin).json()
+        assert pattern["status"] == "draft"
+        assert pattern["visibility"] == "internal_only"
+        assert pattern["review"]["issues"] == ["待审核"]
+        logs = client.get("/api/v1/admin/patterns/pat_bulk_safe_1/audit-logs", headers=admin).json()
+        assert logs[0]["action"] == "review_bulk_assigned"
+        assert logs[0]["actor"] == "assignment-manager"
+
+        duplicate = client.post(path, headers=signed_headers("POST", path, "http-request-bulk-004"), json={
+            "patternIds": ["pat_bulk_safe_1", "pat_bulk_safe_1"], "assignee": "专家丙", "requestId": "bulk-safe-002"
+        })
+        assert duplicate.status_code == 422
+        oversized = client.post(path, headers=signed_headers("POST", path, "http-request-bulk-005"), json={
+            "patternIds": [f"pat_bulk_{index:03d}" for index in range(51)], "assignee": "专家丙", "requestId": "bulk-safe-003"
+        })
+        assert oversized.status_code == 422

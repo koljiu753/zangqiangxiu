@@ -18,6 +18,7 @@ from .schemas import (AuditLog, BatchOperationItem, BatchOperationResponse, Batc
                       PatternPage, PatternUpdate, ReviewRiskStats)
 from .security import require_admin
 from .review_workflow import router as review_workflow_router
+from .review_queues import router as review_queues_router
 from .evidence_storage import delete_object, fetch_object, store_upload
 from .observability import request_observability
 
@@ -41,6 +42,7 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 app.include_router(review_workflow_router)
+app.include_router(review_queues_router)
 
 
 def ensure_publishable(item: dict) -> None:

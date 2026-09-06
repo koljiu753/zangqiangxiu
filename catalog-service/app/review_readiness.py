@@ -135,6 +135,12 @@ def apply_verified_sources(rows: list[dict[str, Any]], database_target: Settings
                 "locator": row["source_locator"], "originalPath": row["original_path"],
                 "objectKey": row["object_key"], "sha256": row["sha256"],
                 "byteSize": row["byte_size"], "width": row["width"], "height": row["height"],
+                "candidateName": row["candidate_name"], "canonicalName": row["canonical_name"],
+                "categorySuggestion": {
+                    "code": row["category_suggestion_code"],
+                    "label": row["category_suggestion_label"],
+                },
+                "riskFlags": [flag for flag in row["risk_flags"].split("|") if flag],
             }
             verified = {key: value for key, value in verified.items() if value not in (None, "")}
             source["seedProvenance"] = verified

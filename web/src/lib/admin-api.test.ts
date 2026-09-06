@@ -38,6 +38,16 @@ describe("admin API client", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://catalog.test/api/v1/admin/patterns/stats");
   });
 
+  it("loads specialty queue summary and filtered server pagination", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ items: [], page: 2, pageSize: 20, total: 21, pages: 2 }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const { getReviewQueueSummary, getReviewQueuePatterns } = await import("./admin-api");
+    await getReviewQueueSummary();
+    await getReviewQueuePatterns({ queue: "category_suggestion", page: 2, q: "云", suggestion: "plant" });
+    expect(fetchMock.mock.calls[0][0]).toBe("http://catalog.test/api/v1/admin/review-queues/summary");
+    expect(fetchMock.mock.calls[1][0]).toBe("http://catalog.test/api/v1/admin/review-queues/patterns?queue=category_suggestion&page=2&pageSize=20&q=%E4%BA%91&suggestion=plant");
+  });
+
   it("proxies Catalog CSV export filters through the server client", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("csv", { status: 200, headers: { "Content-Type": "text/csv" } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -82,17 +92,20 @@ describe("admin API client", () => {
   it("keeps evidence and review workflow calls on the server admin client", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ succeeded: 1, failed: 0, items: [] }), { status: 200, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
-    const { updatePatternEvidence, getReviewTasks, assignReviewTask, decideReviewTask } = await import("./admin-api");
+    const { updatePatternEvidence, getReviewTasks, assignReviewTask, bulkAssignReviewTasks, decideReviewTask } = await import("./admin-api");
     await updatePatternEvidence("pat_001", { sourceDescription: "馆藏采集" });
     await getReviewTasks({ assignee: "专家甲", state: "assigned" });
     await assignReviewTask("pat_001", "专家甲", "assign_request_001");
+    await bulkAssignReviewTasks({ patternIds: ["pat_002"], assignee: "专家乙", requestId: "bulk_assign_request_002" });
     await decideReviewTask("pat_001", "approved", "专家甲", "通过", [], "decide_request_001");
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
       "http://catalog.test/api/v1/admin/patterns/pat_001/evidence",
       "http://catalog.test/api/v1/admin/reviews/tasks?assignee=%E4%B8%93%E5%AE%B6%E7%94%B2&state=assigned",
       "http://catalog.test/api/v1/admin/reviews/batch-assign",
+      "http://catalog.test/api/v1/admin/reviews/bulk-assign",
       "http://catalog.test/api/v1/admin/reviews/batch-decide",
     ]);
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ patternIds: ["pat_002"], assignee: "专家乙", requestId: "bulk_assign_request_002" });
     for (const call of fetchMock.mock.calls) expect(new Headers(call[1].headers).get("X-Admin-Token")).toBe("test-token");
   });
 

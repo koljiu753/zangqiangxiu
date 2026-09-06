@@ -59,8 +59,9 @@ try {
     Invoke-Docker compose exec -T postgres sh -ec ('createdb -U "$POSTGRES_USER" ''{0}''' -f $tempDatabase)
     $databaseCreated = $true
     Invoke-Docker compose exec -T postgres sh -ec ('pg_restore -U "$POSTGRES_USER" -d ''{0}'' --no-owner --no-privileges ''{1}''' -f $tempDatabase, $containerDump)
-    $tableCount = ((@(& $docker.FullName compose exec -T postgres sh -ec ('psql -U "$POSTGRES_USER" -d ''{0}'' -Atc "select count(*) from information_schema.tables where table_schema=''public'';"' -f $tempDatabase))) -join "`n").Trim()
-    if ($LASTEXITCODE -ne 0 -or [int]$tableCount -lt 1) { throw "restored database has no public tables" }
+    # Validate inside the container instead of parsing native stdout. Windows
+    # PowerShell 5.1 can lose captured Docker stdout even when the command succeeds.
+    Invoke-Docker exec $postgresContainer sh -ec ('psql -U "$POSTGRES_USER" -d ''{0}'' -Atc "select 1 from information_schema.tables where table_schema=''public'' limit 1;" | grep -qx 1' -f $tempDatabase)
 
     $mountPath = $minioDir.Replace('\', '/')
     $restoreObjectsCommand = 'mc alias set target http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null; mc mb "target/{0}" >/dev/null; mc mirror /backup "target/{0}" >/dev/null; count=$(mc ls --recursive "target/{0}" | wc -l); test "$count" -eq ''{1}''' -f $tempBucket, $manifest.minioObjectCount
@@ -70,7 +71,7 @@ try {
     Invoke-Docker compose run --rm --no-deps --entrypoint /bin/sh --volume "${mountPath}:/backup:ro" minio-init -ec $restoreObjectsCommand
 
     Write-Host "Restore drill passed."
-    Write-Host "Temporary database: $tempDatabase ($tableCount public tables)"
+    Write-Host "Temporary database: $tempDatabase (public tables validated)"
     Write-Host "Temporary bucket: $tempBucket ($($manifest.minioObjectCount) objects)"
 }
 finally {

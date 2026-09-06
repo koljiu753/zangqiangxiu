@@ -9,11 +9,12 @@ from .db import database, json_value, row_to_dict, timestamp_value
 from .schemas import (
     BatchReviewAssignmentRequest,
     BatchReviewDecisionRequest,
+    BulkReviewAssignmentRequest,
     ReviewTask,
     ReviewWorkflowItem,
     ReviewWorkflowResponse,
 )
-from .security import require_admin
+from .security import require_admin, require_signed_admin
 
 
 router = APIRouter(prefix="/api/v1/admin/reviews", dependencies=[Depends(require_admin)])
@@ -134,6 +135,63 @@ def batch_assign(payload: BatchReviewAssignmentRequest, actor: str = Depends(req
         except Exception as exc:
             results.append(_failure(item.patternId, exc))
     return _response(results)
+
+
+@router.post("/bulk-assign", response_model=ReviewWorkflowResponse)
+def bulk_assign_filtered_patterns(
+    payload: BulkReviewAssignmentRequest,
+    actor: str = Depends(require_signed_admin),
+) -> ReviewWorkflowResponse:
+    """Assign a bounded caller-filtered ID set without deciding or publishing it."""
+    fingerprint = _fingerprint("bulk_assign", payload.model_dump())
+    with database(get_settings()) as connection:
+        operation = connection.execute(
+            "SELECT * FROM review_operations WHERE request_id=?", (payload.requestId,)
+        ).fetchone()
+        if operation:
+            if operation["action"] != "bulk_assign" or operation["fingerprint"] != fingerprint:
+                raise HTTPException(status_code=409, detail={
+                    "code": "idempotency_conflict",
+                    "message": "requestId was already used for a different operation",
+                })
+            response = ReviewWorkflowResponse.model_validate(json_value(operation["result_json"]))
+            for item in response.items:
+                item.replayed = True
+            return response
+
+        results: list[ReviewWorkflowItem] = []
+        for pattern_id in payload.patternIds:
+            pattern = connection.execute("SELECT status FROM patterns WHERE id=?", (pattern_id,)).fetchone()
+            if pattern is None:
+                results.append(ReviewWorkflowItem(patternId=pattern_id, status="failed", code="not_found", message="Pattern not found"))
+                continue
+            if pattern["status"] != "draft":
+                results.append(ReviewWorkflowItem(patternId=pattern_id, status="failed", code="review_not_editable", message="Only draft patterns can enter review"))
+                continue
+            current = connection.execute("SELECT * FROM review_tasks WHERE pattern_id=?", (pattern_id,)).fetchone()
+            before = _task(current).model_dump() if current else None
+            if not current or current["assignee"] != payload.assignee or current["state"] != "assigned":
+                if current:
+                    connection.execute(
+                        "UPDATE review_tasks SET assignee=?,state='assigned',decision_note=NULL,assigned_at=CURRENT_TIMESTAMP,decided_by=NULL,decided_at=NULL WHERE pattern_id=?",
+                        (payload.assignee, pattern_id),
+                    )
+                else:
+                    connection.execute(
+                        "INSERT INTO review_tasks(pattern_id,assignee,state) VALUES (?,?,'assigned')",
+                        (pattern_id, payload.assignee),
+                    )
+                current = connection.execute("SELECT * FROM review_tasks WHERE pattern_id=?", (pattern_id,)).fetchone()
+                _audit(connection, pattern_id, "review_bulk_reassigned" if before else "review_bulk_assigned",
+                       actor, before, _task(current).model_dump())
+            results.append(ReviewWorkflowItem(patternId=pattern_id, status="succeeded", task=_task(current)))
+
+        response = _response(results)
+        connection.execute(
+            "INSERT INTO review_operations(request_id,action,fingerprint,result_json) VALUES (?,?,?,?)",
+            (payload.requestId, "bulk_assign", fingerprint, json.dumps(response.model_dump(), ensure_ascii=False)),
+        )
+        return response
 
 
 @router.post("/batch-decide", response_model=ReviewWorkflowResponse)

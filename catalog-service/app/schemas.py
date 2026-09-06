@@ -1,5 +1,5 @@
-from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Literal
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 Ethnicity = Literal["藏族", "羌族", "藏羌共融", "unknown"]
@@ -106,6 +106,45 @@ class PatternPage(BaseModel):
     pages: int
 
 
+ReviewQueueKind = Literal["all", "low_resolution", "name_review", "duplicate_name", "uncategorized", "category_suggestion"]
+
+
+class CatalogReviewQueueItem(BaseModel):
+    patternId: str
+    name: str
+    category: str
+    imageUrl: str | None = None
+    status: Status
+    visibility: Visibility
+    width: int | None = None
+    height: int | None = None
+    lowResolution: bool
+    nameNeedsReview: bool
+    duplicateName: bool
+    duplicateNameCount: int
+    categoryNeedsReview: bool
+    categorySuggestionCode: str | None = None
+    categorySuggestionLabel: str | None = None
+
+
+class CatalogReviewQueuePage(BaseModel):
+    items: list[CatalogReviewQueueItem]
+    page: int
+    pageSize: int
+    total: int
+    pages: int
+
+
+class CatalogReviewQueueSummary(BaseModel):
+    total: int
+    lowResolution: int
+    nameNeedsReview: int
+    duplicateName: int
+    uncategorized: int
+    categorySuggestion: int
+    lowResolutionEdge: int
+
+
 class AuditLog(BaseModel):
     id: int
     patternId: str
@@ -176,6 +215,19 @@ class ReviewAssignmentItem(BaseModel):
 
 class BatchReviewAssignmentRequest(BaseModel):
     items: list[ReviewAssignmentItem] = Field(min_length=1, max_length=100)
+
+
+class BulkReviewAssignmentRequest(BaseModel):
+    """A bounded, idempotent assignment for an already-filtered set of patterns."""
+    patternIds: list[Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{2,99}$")]] = Field(min_length=1, max_length=50)
+    assignee: str = Field(min_length=1, max_length=200)
+    requestId: str = Field(min_length=8, max_length=100, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{7,99}$")
+
+    @model_validator(mode="after")
+    def unique_pattern_ids(self):
+        if len(set(self.patternIds)) != len(self.patternIds):
+            raise ValueError("patternIds must not contain duplicates")
+        return self
 
 
 class ReviewDecisionItem(BaseModel):
