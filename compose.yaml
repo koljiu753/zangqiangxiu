@@ -154,6 +154,10 @@ services:
       ZHIXIU_AI_S3_REGION: ${AI_S3_REGION:-us-east-1}
       ZHIXIU_AI_S3_PREFIX: ${AI_S3_PREFIX:-production/ai-assets}
       ZHIXIU_AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN in .env}
+      ZHIXIU_AI_ANON_UPLOADS_PER_MINUTE: ${AI_ANON_UPLOADS_PER_MINUTE:-30}
+      ZHIXIU_AI_ANON_ANALYSES_PER_MINUTE: ${AI_ANON_ANALYSES_PER_MINUTE:-60}
+      ZHIXIU_AI_MAX_QUEUED_JOBS: ${AI_MAX_QUEUED_JOBS:-100}
+      ZHIXIU_AI_ANON_ASSET_TTL_HOURS: ${AI_ANON_ASSET_TTL_HOURS:-24}
       AWS_ACCESS_KEY_ID: ${AI_S3_ACCESS_KEY:?set AI_S3_ACCESS_KEY in .env}
       AWS_SECRET_ACCESS_KEY: ${AI_S3_SECRET_KEY:?set AI_S3_SECRET_KEY in .env}
       ZHIXIU_AI_CORS_ORIGINS: ${PUBLIC_WEB_ORIGIN:-http://localhost:3000}
@@ -196,14 +200,17 @@ services:
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN in .env}
       # Public Studio analyses are restricted to published reference assets.
       STUDIO_PREVIEW_INTERNAL: "false"
+      STUDIO_REQUESTS_PER_MINUTE: ${STUDIO_REQUESTS_PER_MINUTE:-10}
+      STUDIO_MAX_UPLOAD_BYTES: ${STUDIO_MAX_UPLOAD_BYTES:-10485760}
       ADMIN_UI_USER: ${ADMIN_UI_USER:?set ADMIN_UI_USER in .env}
       ADMIN_UI_PASSWORD: ${ADMIN_UI_PASSWORD:?set ADMIN_UI_PASSWORD in .env}
-      ADMIN_UI_ROLE: publisher
+      # Local single-account default. Production overlay requires an explicit role.
+      ADMIN_UI_ROLE: ${ADMIN_UI_ROLE:-reviewer}
       AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:?set AUTH_SESSION_SECRET in .env}
-      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       ADMIN_ALLOW_BASIC_AUTH: "false"
       # Enable only when a trusted reverse proxy overwrites X-Forwarded-For.
-      ADMIN_TRUST_PROXY: "false"
+      ADMIN_TRUST_PROXY: ${ADMIN_TRUST_PROXY:-false}
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:

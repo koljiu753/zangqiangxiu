@@ -19,6 +19,10 @@ class Settings:
     s3_region: str | None = None
     s3_prefix: str = "ai-assets"
     internal_token: str | None = None
+    anonymous_uploads_per_minute: int = 30
+    anonymous_analyses_per_minute: int = 60
+    max_queued_jobs: int = 100
+    anonymous_asset_ttl_hours: int = 24
 
 
 def get_settings() -> Settings:
@@ -44,6 +48,10 @@ def get_settings() -> Settings:
         s3_region=os.getenv("ZHIXIU_AI_S3_REGION"),
         s3_prefix=os.getenv("ZHIXIU_AI_S3_PREFIX", "ai-assets").strip("/"),
         internal_token=os.getenv("ZHIXIU_AI_INTERNAL_TOKEN"),
+        anonymous_uploads_per_minute=int(os.getenv("ZHIXIU_AI_ANON_UPLOADS_PER_MINUTE", "30")),
+        anonymous_analyses_per_minute=int(os.getenv("ZHIXIU_AI_ANON_ANALYSES_PER_MINUTE", "60")),
+        max_queued_jobs=int(os.getenv("ZHIXIU_AI_MAX_QUEUED_JOBS", "100")),
+        anonymous_asset_ttl_hours=int(os.getenv("ZHIXIU_AI_ANON_ASSET_TTL_HOURS", "24")),
     )
 
 
@@ -61,3 +69,7 @@ def validate_settings(settings: Settings) -> None:
         raise RuntimeError("Production S3 endpoints must use HTTPS")
     if settings.environment == "production" and not settings.internal_token:
         raise RuntimeError("ZHIXIU_AI_INTERNAL_TOKEN is required in production")
+    for name in ("anonymous_uploads_per_minute", "anonymous_analyses_per_minute",
+                 "max_queued_jobs", "anonymous_asset_ttl_hours"):
+        if getattr(settings, name) < 0:
+            raise RuntimeError(f"{name} must be non-negative")

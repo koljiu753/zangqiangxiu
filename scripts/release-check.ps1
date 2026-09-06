@@ -1,11 +1,15 @@
 [CmdletBinding()]
 param(
     [switch]$SkipContainerBuild,
-    [string]$PythonExecutable
+    [string]$PythonExecutable,
+    [string]$EnvironmentFile,
+    [switch]$Production
 )
 
 $ErrorActionPreference = "Stop"
-$root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = (Resolve-Path (Join-Path $scriptDirectory "..")).Path
+if (-not $EnvironmentFile) { $EnvironmentFile = Join-Path $root ".env" }
 $version = (Get-Content -LiteralPath (Join-Path $root "VERSION") -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+([+-][0-9A-Za-z.-]+)?$') {
     throw "VERSION must be a semantic version; found '$version'"
@@ -22,7 +26,7 @@ function Invoke-Step {
 }
 
 Write-Host "Zhixiu release gate v$version" -ForegroundColor Green
-& (Join-Path $PSScriptRoot "preflight.ps1")
+& (Join-Path $PSScriptRoot "preflight.ps1") -EnvironmentFile $EnvironmentFile -Production:$Production
 
 if (-not $PythonExecutable) {
     $releasePython = Join-Path $root ".release-venv\Scripts\python.exe"
@@ -43,7 +47,10 @@ if (-not $SkipContainerBuild) {
         if (Test-Path -LiteralPath $desktopDocker) { $docker = Get-Item -LiteralPath $desktopDocker }
         else { throw "docker was not found; install Docker Desktop and restart the terminal" }
     }
-    Invoke-Step "Container image build" $root $docker.FullName @("compose", "build")
+    $buildArguments = @("compose", "--env-file", $EnvironmentFile, "-f", (Join-Path $root "compose.yaml"))
+    if ($Production) { $buildArguments += @("-f", (Join-Path $root "compose.production.yaml")) }
+    $buildArguments += "build"
+    Invoke-Step "Container image build" $root $docker.FullName $buildArguments
 }
 
 Write-Host "`nRelease gate passed for v$version." -ForegroundColor Green

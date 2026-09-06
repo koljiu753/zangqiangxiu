@@ -3,6 +3,7 @@ import type { AnalysisResult, Pattern, SimilarPattern } from "@/types/domain";
 type Fetch = typeof fetch;
 
 type Job = { id: string; status: string; result_id?: string; error_message?: string };
+type UploadedAsset = { id: string; capability_token: string };
 type RawResult = {
   palette?: Array<{ hex: string }>;
   classification?: { status: string; data?: { label?: string; confidence?: number } };
@@ -51,6 +52,7 @@ export async function analyzeStudioImage(options: {
   catalogBaseUrl?: string;
   previewInternal: boolean;
   adminToken?: string;
+  aiInternalToken?: string;
   fetcher?: Fetch;
   pollDelayMs?: number;
   maxPolls?: number;
@@ -58,44 +60,57 @@ export async function analyzeStudioImage(options: {
   const fetcher = options.fetcher ?? fetch;
   const form = new FormData();
   form.append("image", options.file);
-  const asset = await json<{ id: string }>(fetcher, `${options.aiBaseUrl}/assets`, { method: "POST", body: form });
-  const job = await json<Job>(fetcher, `${options.aiBaseUrl}/analyses`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      asset_id: asset.id,
-      tasks: ["palette", "classification", "similar"],
-      top_k: 5,
-      scope: options.previewInternal ? "internal" : "public",
-    }),
-  });
+  const asset = await json<UploadedAsset>(fetcher, `${options.aiBaseUrl}/assets`, { method: "POST", body: form });
+  if (!asset.capability_token) throw new Error("分析服务未返回资源访问凭证");
+  const capabilityHeaders = { "X-Asset-Capability": asset.capability_token };
+  const analysisHeaders: Record<string, string> = { "Content-Type": "application/json", ...capabilityHeaders };
+  if (options.previewInternal && options.aiInternalToken) analysisHeaders["X-Service-Token"] = options.aiInternalToken;
+  const accessHeaders = Object.fromEntries(Object.entries(analysisHeaders).filter(([key]) => key !== "Content-Type"));
 
-  for (let attempt = 0; attempt < (options.maxPolls ?? 40); attempt += 1) {
-    const current = await json<Job>(fetcher, `${options.aiBaseUrl}/jobs/${job.id}`);
-    if (current.status === "failed") throw new Error(current.error_message || "分析任务失败");
-    if (current.status === "succeeded" && current.result_id) {
-      const raw = await json<RawResult>(fetcher, `${options.aiBaseUrl}/analyses/${current.result_id}`);
-      const matches = (raw.similar ?? []).map((item) => ({
-        assetId: item.asset_id,
-        patternId: item.pattern_id,
-        label: item.label,
-        score: item.score,
-      }));
-      const similar = await Promise.all(matches.map((match) => patternDetails(
-        fetcher, match, options.catalogBaseUrl, options.previewInternal, options.adminToken,
-      )));
-      return {
-        jobId: current.id,
-        status: "succeeded",
-        label: raw.classification?.status === "available" ? raw.classification.data?.label : undefined,
-        confidence: raw.classification?.status === "available" ? raw.classification.data?.confidence : undefined,
-        palette: raw.palette?.map((color) => color.hex) ?? [],
-        algorithmVersion: raw.similarity_algorithm_version,
-        similar,
-        warnings: raw.warnings ?? [],
-      };
+  try {
+    const job = await json<Job>(fetcher, `${options.aiBaseUrl}/analyses`, {
+      method: "POST",
+      headers: analysisHeaders,
+      body: JSON.stringify({
+        asset_id: asset.id,
+        tasks: ["palette", "classification", "similar"],
+        top_k: 5,
+        scope: options.previewInternal ? "internal" : "public",
+      }),
+    });
+
+    for (let attempt = 0; attempt < (options.maxPolls ?? 40); attempt += 1) {
+      const current = await json<Job>(fetcher, `${options.aiBaseUrl}/jobs/${job.id}`, { headers: accessHeaders });
+      if (current.status === "failed") throw new Error(current.error_message || "分析任务失败");
+      if (current.status === "succeeded" && current.result_id) {
+        const raw = await json<RawResult>(fetcher, `${options.aiBaseUrl}/analyses/${current.result_id}`, { headers: accessHeaders });
+        const matches = (raw.similar ?? []).map((item) => ({
+          assetId: item.asset_id,
+          patternId: item.pattern_id,
+          label: item.label,
+          score: item.score,
+        }));
+        const similar = await Promise.all(matches.map((match) => patternDetails(
+          fetcher, match, options.catalogBaseUrl, options.previewInternal, options.adminToken,
+        )));
+        return {
+          jobId: current.id,
+          status: "succeeded",
+          label: raw.classification?.status === "available" ? raw.classification.data?.label : undefined,
+          confidence: raw.classification?.status === "available" ? raw.classification.data?.confidence : undefined,
+          palette: raw.palette?.map((color) => color.hex) ?? [],
+          algorithmVersion: raw.similarity_algorithm_version,
+          similar,
+          warnings: raw.warnings ?? [],
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, options.pollDelayMs ?? 250));
     }
-    await new Promise((resolve) => setTimeout(resolve, options.pollDelayMs ?? 250));
+    throw new Error("分析任务等待超时，请稍后重试");
+  } finally {
+    await fetcher(`${options.aiBaseUrl}/assets/${asset.id}`, {
+      method: "DELETE",
+      headers: capabilityHeaders,
+    }).catch(() => undefined);
   }
-  throw new Error("分析任务等待超时，请稍后重试");
 }

@@ -13,8 +13,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const { data } = await getPattern(id);
   return data
-    ? { title: `${data.name} | 智绣乡村`, description: data.meaning || `查看${data.name}纹样档案` }
-    : { title: "纹样未找到 | 智绣乡村" };
+    ? { title: data.name, description: data.meaning || `查看${data.name}纹样档案` }
+    : { title: "纹样未找到" };
 }
 
 export default async function PatternDetailPage({ params }: Props) {

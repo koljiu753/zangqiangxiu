@@ -66,6 +66,9 @@ jobs:
       - name: Validate release preflight
         shell: pwsh
         run: ./scripts/preflight.ps1
+      - name: Test production preflight policy
+        shell: pwsh
+        run: ./scripts/tests/preflight-production.ps1
       - name: Build production images
         run: docker compose build
       - name: Start isolated stack

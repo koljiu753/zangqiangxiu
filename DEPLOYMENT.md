@@ -21,15 +21,26 @@ docker compose ps
 .\scripts\release-check.ps1
 ```
 
+公网生产部署使用独立 overlay，避免把本地 HTTP 例外带入生产。复制 `.env.production.example` 到受保护位置、填写真实值后执行：
+
+```powershell
+.\scripts\preflight.ps1 -EnvironmentFile C:\secure\zhixiu-production.env -Production
+.\scripts\release-check.ps1 -EnvironmentFile C:\secure\zhixiu-production.env -Production
+docker compose --env-file C:\secure\zhixiu-production.env `
+  -f compose.yaml -f compose.production.yaml up --build -d
+```
+
+生产预检强制要求 Web、两个公开 API 和对象存储均使用 HTTPS，要求显式选择后台角色，并由 overlay 强制启用 Secure Cookie、关闭 Basic Auth、关闭演示回退且把 AI 服务设为 `production`。`ADMIN_TRUST_PROXY` 默认关闭；仅当受信反向代理会覆盖客户端地址头时才设为 `true`。
+
 紧急情况下可以用 `-SkipContainerBuild` 只执行配置、测试、lint 和 Web 生产构建，但正式发布验收不得跳过镜像构建。
 
 访问地址：Web `http://localhost:3000`，Catalog API `http://localhost:8001/docs`，AI API `http://localhost:8002/docs`，MinIO Console `http://localhost:9001`。端口默认只绑定到本机回环地址；对外提供服务时应由 HTTPS 反向代理转发 Web/API，不要直接暴露数据库或对象存储端口。
 
 首次启动时 Catalog 与 AI 会分别幂等创建自己所需的 PostgreSQL 表，`minio-init` 会幂等创建私有桶（默认 `zhixiu-assets`）。不要把 `data/migrations/001_core.sql` 挂到此数据库的自动初始化目录：该文件是领域数据模型草案，不是两个运行时服务的 schema。
 
-本地 MinIO 在容器网络中使用 HTTP，因此模板把 `AI_ENVIRONMENT` 设为 `development`。真正生产环境必须给 S3/MinIO endpoint 配置 HTTPS，再把该值改为 `production`；否则 AI 服务会拒绝启动。
+本地 MinIO 在容器网络中使用 HTTP，因此基础 Compose 把 `AI_ENVIRONMENT` 默认设为 `development`。生产 overlay 强制 AI 使用 `production`，并要求显式提供 HTTPS 的 `S3_ENDPOINT_URL`；否则预检或 AI 启动会失败。
 
-本地 Web 同样通过 HTTP 访问，因此 Compose 显式设置 `AUTH_COOKIE_SECURE=false`。部署 HTTPS 反向代理后必须删除该覆盖或改为 `true`，保证管理会话 Cookie 仅经 HTTPS 发送。
+本地 Web 同样通过 HTTP 访问，因此基础 Compose 的 `AUTH_COOKIE_SECURE` 默认是 `false`。生产 overlay 固定为 `true`，保证管理会话 Cookie 仅经 HTTPS 发送。
 
 ## 状态与日志
 
@@ -73,5 +84,5 @@ docker volume ls --filter label=com.docker.compose.project=zhixiu
 - `NEXT_PUBLIC_*` 值在 Web 镜像构建时固化；域名变化后需重新构建 Web 镜像。
 - 生产环境应为 Web、Catalog、AI 配置 HTTPS、访问日志、指标与异地备份。
 - 数据库密码会嵌入 PostgreSQL URL，模板中请使用 URL-safe 的高强度随机值；托管环境优先直接注入完整连接 URL 和工作负载身份。
-- MinIO 根凭据目前同时作为 AI 服务凭据，适合单机验收。正式环境应创建只允许目标桶与前缀执行 `HeadBucket`、`PutObject`、`GetObject` 的独立服务账号。
+- 基础 Compose 已分别创建 AI 与 Catalog 专用对象存储身份，服务不接收 MinIO 根凭据；Catalog 身份只允许访问凭证前缀。生产环境也必须保持身份分离，并在外部 S3/MinIO 上授予同等最小权限。
 - 当前登录是单一运营账号模型。面向多人运营前应接入正式身份提供方与独立用户审计身份。

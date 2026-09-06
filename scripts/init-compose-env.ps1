@@ -1,6 +1,8 @@
-param([string]$OutputPath = (Join-Path $PSScriptRoot "..\.env"))
+param([string]$OutputPath)
 
-$resolvedRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$resolvedRoot = (Resolve-Path (Join-Path $scriptDirectory "..")).Path
+if (-not $OutputPath) { $OutputPath = Join-Path $resolvedRoot ".env" }
 $fullOutput = [IO.Path]::GetFullPath($OutputPath)
 if (-not $fullOutput.StartsWith($resolvedRoot + [IO.Path]::DirectorySeparatorChar)) {
     throw "Output must stay inside the project directory"

@@ -49,6 +49,7 @@ class AssetResponse(BaseModel):
     height: int
     byte_size: int
     created_at: datetime
+    capability_token: str | None = None
 
 
 class AnalysisCreate(BaseModel):

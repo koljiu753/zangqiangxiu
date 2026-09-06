@@ -9,7 +9,8 @@ describe("analyzeStudioImage", () => {
   it("uses internal scope on preview and enriches explainable matches", async () => {
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/assets")) return response({ id: "asset-query" }, 201);
+      if (url.endsWith("/assets")) return response({ id: "asset-query", capability_token: "asset-secret" }, 201);
+      if (url.endsWith("/assets/asset-query") && init?.method === "DELETE") return response({ deleted: true });
       if (url.endsWith("/analyses") && init?.method === "POST") {
         expect(JSON.parse(String(init.body))).toMatchObject({ scope: "internal", top_k: 5 });
         return response({ id: "job-1" }, 202);
@@ -26,15 +27,17 @@ describe("analyzeStudioImage", () => {
       }
       throw new Error(`unexpected ${url}`);
     }) as typeof fetch;
-    const result = await analyzeStudioImage({ file: new File(["x"], "x.png"), aiBaseUrl: "http://ai/v1", catalogBaseUrl: "http://catalog/api/v1", previewInternal: true, adminToken: "secret", fetcher, pollDelayMs: 0 });
+    const result = await analyzeStudioImage({ file: new File(["x"], "x.png"), aiBaseUrl: "http://ai/v1", catalogBaseUrl: "http://catalog/api/v1", previewInternal: true, adminToken: "secret", aiInternalToken: "internal-secret", fetcher, pollDelayMs: 0 });
     expect(result.algorithmVersion).toBe("rgb-v1");
     expect(result.similar[0]).toMatchObject({ patternId: "pattern-1", name: "万字纹", score: .91 });
+    expect(fetcher).toHaveBeenCalledWith("http://ai/v1/assets/asset-query", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("keeps production searches public and reports timeout", async () => {
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/assets")) return response({ id: "asset-query" }, 201);
+      if (url.endsWith("/assets")) return response({ id: "asset-query", capability_token: "asset-secret" }, 201);
+      if (url.endsWith("/assets/asset-query") && init?.method === "DELETE") return response({ deleted: true });
       if (url.endsWith("/analyses") && init?.method === "POST") {
         expect(JSON.parse(String(init.body)).scope).toBe("public");
         return response({ id: "job-2" }, 202);

@@ -3,6 +3,7 @@ diagnostics/
 .env.*
 !.env.example
 !.env.compose.example
+!.env.production.example
 node_modules/
 .next/
 dist/

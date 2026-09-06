@@ -1,10 +1,12 @@
 [CmdletBinding()]
 param(
-    [string]$OutputRoot = (Join-Path $PSScriptRoot "..\backups")
+    [string]$OutputRoot
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = (Resolve-Path (Join-Path $scriptDirectory "..")).Path
+if (-not $OutputRoot) { $OutputRoot = Join-Path $projectRoot "backups" }
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if (-not $docker) {
     $desktopDocker = Join-Path $env:ProgramFiles "Docker\Docker\resources\bin\docker.exe"
@@ -51,8 +53,9 @@ try {
 
     $objectFiles = @(Get-ChildItem $minioDir -Recurse -File)
     $objectManifest = @($objectFiles | ForEach-Object {
+        $relativePath = $_.FullName.Substring($minioDir.Length).TrimStart([char[]]"\/")
         [ordered]@{
-            path = [IO.Path]::GetRelativePath($minioDir, $_.FullName).Replace('\', '/')
+            path = $relativePath.Replace('\', '/')
             bytes = $_.Length
             sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         }

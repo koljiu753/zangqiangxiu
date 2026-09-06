@@ -1,11 +1,13 @@
 [CmdletBinding()]
 param(
-    [string]$ComposeFile = (Join-Path $PSScriptRoot "..\compose.yaml"),
+    [string]$ComposeFile,
     [int]$Tail = 120,
     [string]$OutputDirectory
 )
 
 $ErrorActionPreference = "Stop"
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $ComposeFile) { $ComposeFile = Join-Path $scriptDirectory "..\compose.yaml" }
 $composePath = (Resolve-Path -LiteralPath $ComposeFile).Path
 $projectDirectory = Split-Path -Parent $composePath
 if (-not $OutputDirectory) {
@@ -45,7 +47,7 @@ foreach ($service in $services) {
 }
 
 $healthLog = Join-Path $outputPath "health-check.txt"
-& (Join-Path $PSScriptRoot "health-check.ps1") -ComposeFile $composePath *>&1 |
+& (Join-Path $scriptDirectory "health-check.ps1") -ComposeFile $composePath *>&1 |
     Set-Content -LiteralPath $healthLog -Encoding utf8
 $healthExitCode = $LASTEXITCODE
 

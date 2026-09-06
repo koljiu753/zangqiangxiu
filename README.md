@@ -40,7 +40,7 @@
 
 详见 [本地运行手册](RUNBOOK.md)、[容器部署说明](DEPLOYMENT.md) 与 [旧站内容迁移说明](data/LEGACY_CONTENT_MIGRATION.md)。
 
-v0.1.0 的自动化与运行态验收结果、已完成边界及公网上线所需外部条件见 [交付验收记录](ACCEPTANCE.md)。
+v0.2.0 的自动化与运行态验收结果、已完成边界及公网上线所需外部条件见 [交付验收记录](ACCEPTANCE.md)。
 
 ## 发布门禁
 
@@ -52,3 +52,5 @@ v0.1.0 的自动化与运行态验收结果、已完成边界及公网上线所�
 
 该命令会验证生产配置、运行 Catalog/AI/Data/Web 全部测试、前端 lint 与生产构建，并构建三个生产容器镜像。GitHub Actions 会在每次 push 和 pull request 上执行同等检查。
 本机 Python 不在 PATH 时可传入 `-PythonExecutable C:\path\to\python.exe`；也可准备项目内、已被 Git 忽略的 `.release-venv`，脚本会优先使用它。
+
+公网部署请使用 `compose.production.yaml` 与独立的生产环境文件，并执行 `scripts/release-check.ps1 -EnvironmentFile <path> -Production`。该模式会拒绝非 HTTPS 的公开地址或对象存储地址，并强制 AI 生产校验与安全会话 Cookie；详见 [容器部署说明](DEPLOYMENT.md)。

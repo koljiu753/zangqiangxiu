@@ -3,8 +3,12 @@ import hmac
 import io
 import json
 import logging
+import secrets
+import threading
+import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, Request, UploadFile, status
@@ -32,6 +36,47 @@ from .storage import create_storage, decode_job, utcnow
 ALLOWED_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 EXTENSIONS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
 logger = logging.getLogger(__name__)
+_rate_lock = threading.Lock()
+_rate_windows: dict[tuple[str, str], tuple[int, int]] = {}
+
+
+def _is_internal(request: Request, token: str | None) -> bool:
+    expected = request.app.state.settings.internal_token
+    return bool(expected and token and hmac.compare_digest(token, expected))
+
+
+def _capability_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def require_asset_access(request: Request, asset_id: str, capability: str | None,
+                         service_token: str | None) -> None:
+    if _is_internal(request, service_token):
+        return
+    if not capability or not request.app.state.storage.one(
+        "SELECT token_hash FROM asset_capabilities WHERE asset_id=? AND token_hash=?",
+        (asset_id, _capability_hash(capability)),
+    ):
+        raise HTTPException(401, detail={"code": "INVALID_CAPABILITY_TOKEN",
+                                         "message": "A valid asset capability token is required"})
+
+
+def enforce_rate_limit(request: Request, bucket: str, limit: int) -> None:
+    if limit == 0:
+        raise HTTPException(429, detail={"code": "RATE_LIMITED", "message": "Anonymous access is disabled"},
+                            headers={"Retry-After": "60"})
+    now, window = int(time.time()), int(time.time()) // 60
+    client = request.client.host if request.client else "unknown"
+    key = (bucket, client)
+    with _rate_lock:
+        old_window, count = _rate_windows.get(key, (window, 0))
+        if old_window != window:
+            count = 0
+        if count >= limit:
+            retry = max(1, 60 - now % 60)
+            raise HTTPException(429, detail={"code": "RATE_LIMITED", "message": "Rate limit exceeded"},
+                                headers={"Retry-After": str(retry)})
+        _rate_windows[key] = (window, count + 1)
 
 
 def require_internal_access(request: Request, token: str | None) -> None:
@@ -85,6 +130,8 @@ async def lifespan(app: FastAPI):
     app.state.classification_provider = UnconfiguredClassificationProvider()
     app.state.generation_provider = UnconfiguredGenerationProvider()
     app.state.recovered_jobs = recover_interrupted_jobs(app)
+    with _rate_lock:
+        _rate_windows.clear()
     yield
 
 
@@ -99,8 +146,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(_initial_settings.cors_origins),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "Idempotency-Key"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Idempotency-Key", "X-Service-Token", "X-Asset-Capability"],
 )
 
 
@@ -150,8 +197,11 @@ def capabilities(request: Request) -> dict:
 
 
 @app.post("/v1/assets", response_model=AssetResponse, status_code=status.HTTP_201_CREATED, tags=["assets"])
-async def upload_asset(request: Request, image: UploadFile = File(...)) -> AssetResponse:
+async def upload_asset(request: Request, image: UploadFile = File(...),
+                       service_token: str | None = Header(default=None, alias="X-Service-Token")) -> AssetResponse:
     settings = request.app.state.settings
+    if not _is_internal(request, service_token):
+        enforce_rate_limit(request, "upload", settings.anonymous_uploads_per_minute)
     data = await image.read(settings.max_upload_bytes + 1)
     if not data:
         raise HTTPException(400, detail={"code": "EMPTY_FILE", "message": "Image is empty"})
@@ -173,8 +223,11 @@ async def upload_asset(request: Request, image: UploadFile = File(...)) -> Asset
     digest = hashlib.sha256(data).hexdigest()
     storage: Storage = request.app.state.storage
     existing = storage.one("SELECT * FROM assets WHERE sha256 = ?", (digest,))
+    capability = secrets.token_urlsafe(32)
     if existing:
-        return AssetResponse(**existing)
+        storage.execute("INSERT INTO asset_capabilities(token_hash,asset_id,created_at) VALUES (?,?,?)",
+                        (_capability_hash(capability), existing["id"], utcnow()))
+        return AssetResponse(**existing, capability_token=capability)
 
     asset_id = str(uuid.uuid4())
     storage_path = request.app.state.asset_store.put(f"{asset_id}{EXTENSIONS[image_format]}", data)
@@ -185,15 +238,21 @@ async def upload_asset(request: Request, image: UploadFile = File(...)) -> Asset
         "INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (asset_id, digest, filename, content_type, width, height, len(data), storage_path, created_at),
     )
+    storage.execute("INSERT INTO asset_capabilities(token_hash,asset_id,created_at) VALUES (?,?,?)",
+                    (_capability_hash(capability), asset_id, created_at))
     return AssetResponse(id=asset_id, sha256=digest, filename=filename, content_type=content_type,
-                         width=width, height=height, byte_size=len(data), created_at=created_at)
+                         width=width, height=height, byte_size=len(data), created_at=created_at,
+                         capability_token=capability)
 
 
 @app.get("/v1/assets/{asset_id}", response_model=AssetResponse, tags=["assets"])
-def get_asset(asset_id: str, request: Request) -> AssetResponse:
+def get_asset(asset_id: str, request: Request,
+              capability: str | None = Header(default=None, alias="X-Asset-Capability"),
+              service_token: str | None = Header(default=None, alias="X-Service-Token")) -> AssetResponse:
     row = request.app.state.storage.one("SELECT * FROM assets WHERE id = ?", (asset_id,))
     if not row:
         raise HTTPException(404, detail={"code": "ASSET_NOT_FOUND", "message": "Asset not found"})
+    require_asset_access(request, asset_id, capability, service_token)
     return AssetResponse(**row)
 
 
@@ -341,12 +400,20 @@ def create_analysis(
     request: Request,
     background_tasks: BackgroundTasks,
     service_token: str | None = Header(default=None, alias="X-Service-Token"),
+    capability: str | None = Header(default=None, alias="X-Asset-Capability"),
 ) -> JobResponse:
     if payload.scope == SearchScope.internal:
         require_internal_access(request, service_token)
+    else:
+        require_asset_access(request, payload.asset_id, capability, service_token)
+        enforce_rate_limit(request, "analysis", request.app.state.settings.anonymous_analyses_per_minute)
     storage: Storage = request.app.state.storage
     if not storage.one("SELECT id FROM assets WHERE id = ?", (payload.asset_id,)):
         raise HTTPException(404, detail={"code": "ASSET_NOT_FOUND", "message": "Asset not found"})
+    queued = storage.one("SELECT COUNT(*) AS count FROM jobs WHERE status IN ('pending','running')")["count"]
+    if request.app.state.settings.max_queued_jobs and queued >= request.app.state.settings.max_queued_jobs:
+        raise HTTPException(429, detail={"code": "QUEUE_FULL", "message": "Analysis queue is full"},
+                            headers={"Retry-After": "5"})
     job_id = str(uuid.uuid4())
     now = utcnow()
     tasks = [task.value for task in payload.tasks]
@@ -489,12 +556,15 @@ def get_job(
     job_id: str,
     request: Request,
     service_token: str | None = Header(default=None, alias="X-Service-Token"),
+    capability: str | None = Header(default=None, alias="X-Asset-Capability"),
 ) -> JobResponse:
     row = request.app.state.storage.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
     if not row:
         raise HTTPException(404, detail={"code": "JOB_NOT_FOUND", "message": "Job not found"})
     if json.loads(row["parameters"]).get("scope") == SearchScope.internal.value:
         require_internal_access(request, service_token)
+    else:
+        require_asset_access(request, row["asset_id"], capability, service_token)
     return JobResponse(**decode_job(row))
 
 
@@ -503,6 +573,7 @@ def get_analysis(
     result_id: str,
     request: Request,
     service_token: str | None = Header(default=None, alias="X-Service-Token"),
+    capability: str | None = Header(default=None, alias="X-Asset-Capability"),
 ) -> AnalysisResultResponse:
     row = request.app.state.storage.one(
         """SELECT analysis_results.*, jobs.parameters AS job_parameters
@@ -514,6 +585,46 @@ def get_analysis(
         raise HTTPException(404, detail={"code": "RESULT_NOT_FOUND", "message": "Analysis result not found"})
     if json.loads(row["job_parameters"]).get("scope") == SearchScope.internal.value:
         require_internal_access(request, service_token)
+    else:
+        require_asset_access(request, row["asset_id"], capability, service_token)
     payload = json.loads(row["payload"])
     return AnalysisResultResponse(id=row["id"], job_id=row["job_id"], asset_id=row["asset_id"],
                                   created_at=row["created_at"], **payload)
+
+
+@app.delete("/v1/assets/{asset_id}", tags=["assets"])
+def delete_asset(asset_id: str, request: Request,
+                 capability: str | None = Header(default=None, alias="X-Asset-Capability"),
+                 service_token: str | None = Header(default=None, alias="X-Service-Token")) -> dict:
+    storage = request.app.state.storage
+    asset = storage.one("SELECT * FROM assets WHERE id=?", (asset_id,))
+    if not asset:
+        raise HTTPException(404, detail={"code": "ASSET_NOT_FOUND", "message": "Asset not found"})
+    require_asset_access(request, asset_id, capability, service_token)
+    if not _is_internal(request, service_token) and storage.one(
+        "SELECT asset_id FROM reference_assets WHERE asset_id=?", (asset_id,)
+    ):
+        raise HTTPException(409, detail={"code": "REFERENCE_ASSET_PROTECTED",
+                                         "message": "Registered reference assets cannot be deleted anonymously"})
+    request.app.state.asset_store.delete(asset["storage_path"])
+    storage.delete_asset_cascade(asset_id)
+    return {"deleted": True, "asset_id": asset_id}
+
+
+@app.post("/v1/internal/cleanup", tags=["system"])
+def cleanup_assets(request: Request, dry_run: bool = Query(default=True),
+                   service_token: str | None = Header(default=None, alias="X-Service-Token")) -> dict:
+    require_internal_access(request, service_token)
+    cutoff = (datetime.now(timezone.utc) - timedelta(
+        hours=request.app.state.settings.anonymous_asset_ttl_hours)).isoformat()
+    rows = request.app.state.storage.all(
+        """SELECT a.* FROM assets a WHERE a.created_at < ?
+           AND NOT EXISTS (SELECT 1 FROM reference_assets r WHERE r.asset_id=a.id)""", (cutoff,)
+    )
+    if not dry_run:
+        for asset in rows:
+            request.app.state.asset_store.delete(asset["storage_path"])
+            request.app.state.storage.delete_asset_cascade(asset["id"])
+    return {"dry_run": dry_run, "ttl_hours": request.app.state.settings.anonymous_asset_ttl_hours,
+            "matched": len(rows), "deleted": 0 if dry_run else len(rows),
+            "asset_ids": [row["id"] for row in rows]}

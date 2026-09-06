@@ -52,6 +52,11 @@ class Storage:
                     visibility TEXT NOT NULL DEFAULT 'internal_only',
                     FOREIGN KEY(asset_id) REFERENCES assets(id)
                 );
+                CREATE TABLE IF NOT EXISTS asset_capabilities (
+                    token_hash TEXT PRIMARY KEY, asset_id TEXT NOT NULL, created_at TEXT NOT NULL,
+                    FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_asset_capabilities_asset ON asset_capabilities(asset_id);
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(reference_assets)")}
             for name, declaration in (
@@ -86,6 +91,14 @@ class Storage:
             rows = db.execute(sql, parameters).fetchall()
         return [dict(row) for row in rows]
 
+    def delete_asset_cascade(self, asset_id: str) -> None:
+        with self.connect() as db:
+            db.execute("DELETE FROM analysis_results WHERE asset_id=?", (asset_id,))
+            db.execute("DELETE FROM jobs WHERE asset_id=?", (asset_id,))
+            db.execute("DELETE FROM asset_capabilities WHERE asset_id=?", (asset_id,))
+            db.execute("DELETE FROM reference_assets WHERE asset_id=?", (asset_id,))
+            db.execute("DELETE FROM assets WHERE id=?", (asset_id,))
+
 
 POSTGRES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS assets (
@@ -103,6 +116,10 @@ CREATE TABLE IF NOT EXISTS reference_assets (
  asset_id TEXT PRIMARY KEY REFERENCES assets(id), label TEXT, algorithm_version TEXT NOT NULL,
  feature TEXT NOT NULL, created_at TEXT NOT NULL, pattern_id TEXT,
  review_status TEXT NOT NULL DEFAULT 'draft', visibility TEXT NOT NULL DEFAULT 'internal_only');
+CREATE TABLE IF NOT EXISTS asset_capabilities (
+ token_hash TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_asset_capabilities_asset ON asset_capabilities(asset_id);
 """
 
 
@@ -163,6 +180,13 @@ class PostgreSQLStorage:
             db.execute(self._sql(sql), parameters)
             rows = db.fetchall()
         return [dict(row) for row in rows]
+
+    def delete_asset_cascade(self, asset_id: str) -> None:
+        with self.connect() as db:
+            for sql in ("DELETE FROM analysis_results WHERE asset_id=?", "DELETE FROM jobs WHERE asset_id=?",
+                        "DELETE FROM asset_capabilities WHERE asset_id=?", "DELETE FROM reference_assets WHERE asset_id=?",
+                        "DELETE FROM assets WHERE id=?"):
+                db.execute(self._sql(sql), (asset_id,))
 
 
 def create_storage(backend: str, sqlite_path: Path, database_url: str | None = None):

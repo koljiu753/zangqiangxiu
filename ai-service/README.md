@@ -15,10 +15,10 @@ uvicorn app.main:app --reload --port 8001
 
 ## API流程
 
-1. `POST /v1/assets`：multipart字段名为`image`，允许JPEG/PNG/WebP，返回`asset_id`、SHA-256和真实尺寸。
-2. `POST /v1/analyses`：提交`asset_id`、`tasks`及`palette_colors`，返回202任务。
-3. `GET /v1/jobs/{job_id}`：查询任务状态和`result_id`。
-4. `GET /v1/analyses/{result_id}`：取得主色及可选Provider输出。
+1. `POST /v1/assets`：返回资产信息和仅展示一次的 `capability_token`。
+2. `POST /v1/analyses`：匿名调用须在 `X-Asset-Capability` 携带上传返回的令牌。
+3. `GET /v1/jobs/{job_id}` 与 `GET /v1/analyses/{result_id}`：匿名访问须携带同一能力令牌；可信服务可使用 `X-Service-Token`。
+4. `DELETE /v1/assets/{asset_id}`：能力令牌可级联删除匿名资产；已登记参考资产只允许内部服务删除。
 5. `GET /v1/capabilities`：读取当前真实 Provider、版本、维度及可用状态；内置特征明确标记为非语义 embedding。
 
 参考库与相似检索：
@@ -94,6 +94,13 @@ Manifest接受顶层数组或`{"records": [...]}`。每条记录须含`pattern_i
 - `ZHIXIU_AI_MAX_IMAGE_PIXELS`（默认2500万像素）
 - `ZHIXIU_AI_CORS_ORIGINS`（逗号分隔，默认仅允许本机3000端口的localhost与127.0.0.1）
 - `ZHIXIU_AI_INTERNAL_TOKEN`：Web 服务端等可信内部调用方使用的独立令牌；生产环境必填，不得加 `NEXT_PUBLIC_` 前缀或发送到浏览器
+- `ZHIXIU_AI_ANON_UPLOADS_PER_MINUTE`（默认30）与 `ZHIXIU_AI_ANON_ANALYSES_PER_MINUTE`（默认60）：匿名限流；超限返回429和`Retry-After`，设0禁用匿名入口
+- `ZHIXIU_AI_MAX_QUEUED_JOBS`（默认100）：`pending + running`上限，设0表示不限制
+- `ZHIXIU_AI_ANON_ASSET_TTL_HOURS`（默认24）：未登记参考资产的保留时间
+
+内部清理使用 `POST /v1/internal/cleanup?dry_run=true` 预览，确认后以 `dry_run=false`
+删除过期资产、任务、结果、能力令牌和对象。入口要求 `X-Service-Token`，参考资产不参与清理。
+服务端只保存 capability token 的 SHA-256 摘要，原始令牌无法恢复。
 
 SQLite和本地文件是最小可运行方案，适合单实例验收。服务现已提供PostgreSQL元数据与S3兼容对象存储后端。分析任务先写入数据库，再由响应后的后台任务执行；服务启动时会把上次异常退出遗留的 `running` 任务重置为 `pending`，并按创建顺序恢复全部未完成任务。领取任务使用条件更新，同一进程中的重复调度不会重复执行。
 

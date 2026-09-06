@@ -28,6 +28,12 @@ class LocalAssetStore:
         if not self.root.is_dir():
             raise RuntimeError("asset store directory is unavailable")
 
+    def delete(self, location: str) -> None:
+        path = Path(location).resolve()
+        if self.root.resolve() not in path.parents:
+            raise ValueError("asset location is outside the configured root")
+        path.unlink(missing_ok=True)
+
 
 class S3AssetStore:
     """Private S3-compatible storage with a bounded local read-through cache."""
@@ -79,6 +85,14 @@ class S3AssetStore:
 
     def check(self) -> None:
         self.client.head_bucket(Bucket=self.bucket)
+
+    def delete(self, location: str) -> None:
+        expected = f"s3://{self.bucket}/"
+        if not location.startswith(expected):
+            raise ValueError("asset location is outside the configured S3 bucket")
+        object_key = location[len(expected):]
+        self.client.delete_object(Bucket=self.bucket, Key=object_key)
+        (self.root / Path(object_key).name).unlink(missing_ok=True)
 
 
 def create_asset_store(backend: str, root: Path, **options):

@@ -53,13 +53,13 @@ function Invoke-Docker {
 
 Push-Location $projectRoot
 try {
-    $postgresContainer = (& $docker.FullName compose ps -q postgres).Trim()
+    $postgresContainer = ((@(& $docker.FullName compose ps -q postgres)) -join "`n").Trim()
     if (-not $postgresContainer) { throw "postgres service is not running" }
     Invoke-Docker cp $postgresFile "${postgresContainer}:$containerDump"
     Invoke-Docker compose exec -T postgres sh -ec ('createdb -U "$POSTGRES_USER" ''{0}''' -f $tempDatabase)
     $databaseCreated = $true
     Invoke-Docker compose exec -T postgres sh -ec ('pg_restore -U "$POSTGRES_USER" -d ''{0}'' --no-owner --no-privileges ''{1}''' -f $tempDatabase, $containerDump)
-    $tableCount = (& $docker.FullName compose exec -T postgres sh -ec ('psql -U "$POSTGRES_USER" -d ''{0}'' -Atc "select count(*) from information_schema.tables where table_schema=''public'';"' -f $tempDatabase)).Trim()
+    $tableCount = ((@(& $docker.FullName compose exec -T postgres sh -ec ('psql -U "$POSTGRES_USER" -d ''{0}'' -Atc "select count(*) from information_schema.tables where table_schema=''public'';"' -f $tempDatabase))) -join "`n").Trim()
     if ($LASTEXITCODE -ne 0 -or [int]$tableCount -lt 1) { throw "restored database has no public tables" }
 
     $mountPath = $minioDir.Replace('\', '/')

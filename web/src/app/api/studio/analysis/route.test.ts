@@ -1,10 +1,12 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { POST } from "./route";
+import { resetStudioLimitsForTests } from "@/lib/studio-rate-limit";
 
 const originalAiUrl = process.env.AI_API_INTERNAL_BASE_URL;
 
 afterEach(() => {
+  resetStudioLimitsForTests();
   if (originalAiUrl === undefined) delete process.env.AI_API_INTERNAL_BASE_URL;
   else process.env.AI_API_INTERNAL_BASE_URL = originalAiUrl;
 });
@@ -22,5 +24,14 @@ describe("studio analysis BFF", () => {
     const response = await POST(new Request("http://localhost/api/studio/analysis", { method: "POST", body: new FormData() }));
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "请选择有效图片" });
+  });
+
+  it("rejects an oversized body before parsing multipart data", async () => {
+    process.env.AI_API_INTERNAL_BASE_URL = "http://ai:8002/v1";
+    const response = await POST(new Request("http://localhost/api/studio/analysis", {
+      method: "POST",
+      headers: { "content-length": String(11 * 1024 * 1024) },
+    }));
+    expect(response.status).toBe(413);
   });
 });

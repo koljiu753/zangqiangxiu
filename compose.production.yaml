@@ -1,0 +1,24 @@
+services:
+  catalog:
+    environment:
+      CATALOG_CORS_ORIGINS: ${PUBLIC_WEB_ORIGIN:?set the public HTTPS web origin}
+      CATALOG_S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:?set an HTTPS S3 endpoint}
+
+  ai:
+    environment:
+      ZHIXIU_AI_ENVIRONMENT: production
+      ZHIXIU_AI_S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:?set an HTTPS S3 endpoint}
+      ZHIXIU_AI_CORS_ORIGINS: ${PUBLIC_WEB_ORIGIN:?set the public HTTPS web origin}
+
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_CATALOG_API_BASE_URL: ${PUBLIC_CATALOG_API_BASE_URL:?set the public HTTPS Catalog API URL}
+        NEXT_PUBLIC_AI_API_BASE_URL: ${PUBLIC_AI_API_BASE_URL:?set the public HTTPS AI API URL}
+        NEXT_PUBLIC_ALLOW_DEMO_FALLBACK: "false"
+    environment:
+      PUBLIC_WEB_ORIGIN: ${PUBLIC_WEB_ORIGIN:?set the public HTTPS web origin}
+      ADMIN_UI_ROLE: ${ADMIN_UI_ROLE:?set reviewer or publisher explicitly}
+      AUTH_COOKIE_SECURE: "true"
+      ADMIN_ALLOW_BASIC_AUTH: "false"
+      ADMIN_TRUST_PROXY: ${ADMIN_TRUST_PROXY:-false}

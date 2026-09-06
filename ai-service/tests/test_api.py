@@ -21,6 +21,9 @@ def upload(client, name, colors):
         "/v1/assets", files={"image": (name, image_bytes(colors), "image/png")}
     ).json()
 
+def capability(asset):
+    return {"X-Asset-Capability": asset["capability_token"]}
+
 
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok", "database": "ok"}
@@ -62,13 +65,13 @@ def test_rejects_non_image(client):
 
 def test_real_palette_embedding_and_unconfigured_classification_provider(client):
     uploaded = client.post("/v1/assets", files={"image": ("two.png", image_bytes(), "image/png")}).json()
-    created = client.post("/v1/analyses", json={
+    created = client.post("/v1/analyses", headers=capability(uploaded), json={
         "asset_id": uploaded["id"], "tasks": ["palette", "embedding", "classification"], "palette_colors": 2
     })
     assert created.status_code == 202
-    job = client.get(f"/v1/jobs/{created.json()['id']}").json()
+    job = client.get(f"/v1/jobs/{created.json()['id']}", headers=capability(uploaded)).json()
     assert job["status"] == "succeeded"
-    result = client.get(f"/v1/analyses/{job['result_id']}").json()
+    result = client.get(f"/v1/analyses/{job['result_id']}", headers=capability(uploaded)).json()
     assert {color["hex"] for color in result["palette"]} == {"#FF0000", "#0000FF"}
     assert abs(sum(color["ratio"] for color in result["palette"]) - 1) < 0.001
     assert result["embedding"]["status"] == "succeeded"
@@ -80,7 +83,7 @@ def test_real_palette_embedding_and_unconfigured_classification_provider(client)
 
 
 def test_unknown_asset_and_openapi(client):
-    assert client.post("/v1/analyses", json={"asset_id": "missing", "tasks": ["palette"]}).status_code == 404
+    assert client.post("/v1/analyses", json={"asset_id": "missing", "tasks": ["palette"]}).status_code == 401
     schema = client.get("/openapi.json").json()
     assert "/v1/assets" in schema["paths"]
     assert "/v1/analyses/{result_id}" in schema["paths"]
@@ -143,11 +146,11 @@ def test_public_scope_excludes_internal_and_unapproved_references(client):
             "review_status": review_status, "visibility": visibility,
         }).status_code == 201
 
-    created = client.post("/v1/analyses", json={
+    created = client.post("/v1/analyses", headers=capability(query), json={
         "asset_id": query["id"], "tasks": ["similar"]
     }).json()
-    job = client.get(f"/v1/jobs/{created['id']}").json()
-    result = client.get(f"/v1/analyses/{job['result_id']}").json()
+    job = client.get(f"/v1/jobs/{created['id']}", headers=capability(query)).json()
+    result = client.get(f"/v1/analyses/{job['result_id']}", headers=capability(query)).json()
     assert [match["pattern_id"] for match in result["similar"]] == ["p-approved"]
 
 
@@ -274,16 +277,16 @@ def test_failed_job_can_be_authorized_and_idempotently_retried(client):
     storage = client.app.state.storage
     original = storage.one("SELECT storage_path FROM assets WHERE id = ?", (asset["id"],))["storage_path"]
     storage.execute("UPDATE assets SET storage_path = ? WHERE id = ?", ("missing.png", asset["id"]))
-    created = client.post("/v1/analyses", json={"asset_id": asset["id"], "tasks": ["palette"]})
+    created = client.post("/v1/analyses", headers=capability(asset), json={"asset_id": asset["id"], "tasks": ["palette"]})
     job_id = created.json()["id"]
-    assert client.get(f"/v1/jobs/{job_id}").json()["status"] == "failed"
+    assert client.get(f"/v1/jobs/{job_id}", headers=capability(asset)).json()["status"] == "failed"
 
     retry_path = f"/v1/internal/jobs/{job_id}/retry"
     assert client.post(retry_path).status_code == 401
     storage.execute("UPDATE assets SET storage_path = ? WHERE id = ?", (original, asset["id"]))
     retried = client.post(retry_path, headers={"X-Service-Token": "test-internal-token"})
     assert retried.status_code == 200
-    assert client.get(f"/v1/jobs/{job_id}").json()["status"] == "succeeded"
+    assert client.get(f"/v1/jobs/{job_id}", headers=capability(asset)).json()["status"] == "succeeded"
     repeated = client.post(retry_path, headers={"X-Service-Token": "test-internal-token"})
     assert repeated.status_code == 200
     assert repeated.json()["status"] == "succeeded"
@@ -302,17 +305,17 @@ def test_interrupted_job_is_recovered_from_persistent_state(client):
     from app.main import recover_interrupted_jobs
 
     asset = upload(client, "recover.png", ((20, 120, 20), (10, 100, 10)))
-    created = client.post("/v1/analyses", json={"asset_id": asset["id"], "tasks": ["embedding"]})
+    created = client.post("/v1/analyses", headers=capability(asset), json={"asset_id": asset["id"], "tasks": ["embedding"]})
     job_id = created.json()["id"]
     storage = client.app.state.storage
-    result_id = client.get(f"/v1/jobs/{job_id}").json()["result_id"]
+    result_id = client.get(f"/v1/jobs/{job_id}", headers=capability(asset)).json()["result_id"]
     storage.execute("DELETE FROM analysis_results WHERE id = ?", (result_id,))
     storage.execute(
         "UPDATE jobs SET status='running', progress=40, result_id=NULL WHERE id = ?", (job_id,)
     )
 
     assert recover_interrupted_jobs(client.app) == 1
-    recovered = client.get(f"/v1/jobs/{job_id}").json()
+    recovered = client.get(f"/v1/jobs/{job_id}", headers=capability(asset)).json()
     assert recovered["status"] == "succeeded"
-    result = client.get(f"/v1/analyses/{recovered['result_id']}").json()
+    result = client.get(f"/v1/analyses/{recovered['result_id']}", headers=capability(asset)).json()
     assert result["embedding"]["model_version"] == "interpretable-rgbhist4-gray8-v1"
