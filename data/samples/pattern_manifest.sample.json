@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "source_system": "zhixiuxiangcun",
+  "source_revision": "REPLACE_WITH_GIT_COMMIT_SHA",
+  "records": [
+    {
+      "legacy_id": "manifest-001",
+      "candidate_name": "八宝连绵纹",
+      "origin_claim": "generated",
+      "status": "draft",
+      "visibility": "private",
+      "asset": {
+        "source_path": "assets/images/patterns/generated/八宝连绵纹.png",
+        "sha256": "REPLACE_AFTER_INVENTORY",
+        "role": "generated"
+      },
+      "candidate_terms": {
+        "motif": ["symbol"],
+        "meaning_text": "福运绵长",
+        "color_text": "多彩",
+        "technique_text": "彩线绣"
+      },
+      "rights": {
+        "legal_basis": "unverified",
+        "allow_display": false,
+        "allow_download": false,
+        "allow_commercial": false,
+        "allow_ai_training": false,
+        "allow_derivatives": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+// @vitest-environment node
+import { afterEach, describe, expect, it } from "vitest";
+import { POST } from "./route";
+
+const originalAiUrl = process.env.AI_API_INTERNAL_BASE_URL;
+
+afterEach(() => {
+  if (originalAiUrl === undefined) delete process.env.AI_API_INTERNAL_BASE_URL;
+  else process.env.AI_API_INTERNAL_BASE_URL = originalAiUrl;
+});
+
+describe("studio analysis BFF", () => {
+  it("fails closed when the internal AI service is not configured", async () => {
+    delete process.env.AI_API_INTERNAL_BASE_URL;
+    const response = await POST(new Request("http://localhost/api/studio/analysis", { method: "POST" }));
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "AI 服务尚未配置" });
+  });
+
+  it("rejects a request without an image before calling upstream", async () => {
+    process.env.AI_API_INTERNAL_BASE_URL = "http://ai:8002/v1";
+    const response = await POST(new Request("http://localhost/api/studio/analysis", { method: "POST", body: new FormData() }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "请选择有效图片" });
+  });
+});
