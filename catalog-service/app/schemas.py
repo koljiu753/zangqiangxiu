@@ -155,6 +155,14 @@ class AuditLog(BaseModel):
     createdAt: str
 
 
+class AuditLogPage(BaseModel):
+    items: list[AuditLog]
+    page: int
+    pageSize: int
+    total: int
+    pages: int
+
+
 class BatchReviewItem(BaseModel):
     patternId: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{2,99}$")
     reviewedBy: str = Field(min_length=1, max_length=200)
@@ -245,12 +253,64 @@ class BatchReviewDecisionRequest(BaseModel):
 
 class ReviewTask(BaseModel):
     patternId: str
+    patternName: str | None = None
     assignee: str
     state: ReviewTaskState
     decisionNote: str | None = None
     assignedAt: str
     decidedBy: str | None = None
     decidedAt: str | None = None
+
+
+class ReviewTaskPage(BaseModel):
+    items: list[ReviewTask]
+    page: int
+    pageSize: int
+    total: int
+    totalPages: int
+
+
+class ReviewAssigneeSummary(BaseModel):
+    assignee: str
+    total: int
+    assigned: int
+    approved: int
+    rejected: int
+    needsMore: int
+    completed: int
+    completionRate: float
+
+
+class ReviewOperationsSummary(BaseModel):
+    total: int
+    unassigned: int
+    assigned: int
+    approved: int
+    rejected: int
+    needsMore: int
+    completed: int
+    completionRate: float
+    assignees: list[ReviewAssigneeSummary]
+
+
+class ReviewOperationsItem(BaseModel):
+    patternId: str
+    patternName: str
+    assignee: str | None = None
+    state: Literal["unassigned", "assigned", "approved", "rejected", "needs_more"]
+    assignedAt: str | None = None
+    decidedBy: str | None = None
+    decidedAt: str | None = None
+
+
+class ReviewOperationsResponse(BaseModel):
+    summary: ReviewOperationsSummary
+    workloads: list[ReviewAssigneeSummary]
+    items: list[ReviewOperationsItem]
+    page: int
+    pageSize: int
+    total: int
+    pages: int
 
 
 class ReviewWorkflowItem(BaseModel):

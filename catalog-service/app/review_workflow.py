@@ -11,6 +11,11 @@ from .schemas import (
     BatchReviewDecisionRequest,
     BulkReviewAssignmentRequest,
     ReviewTask,
+    ReviewTaskPage,
+    ReviewOperationsSummary,
+    ReviewAssigneeSummary,
+    ReviewOperationsItem,
+    ReviewOperationsResponse,
     ReviewWorkflowItem,
     ReviewWorkflowResponse,
 )
@@ -21,8 +26,10 @@ router = APIRouter(prefix="/api/v1/admin/reviews", dependencies=[Depends(require
 
 
 def _task(row) -> ReviewTask:
+    keys = row.keys()
     return ReviewTask(
         patternId=row["pattern_id"],
+        patternName=row["pattern_name"] if "pattern_name" in keys else None,
         assignee=row["assignee"],
         state=row["state"],
         decisionNote=row["decision_note"],
@@ -80,24 +87,126 @@ def _response(items: list[ReviewWorkflowItem]) -> ReviewWorkflowResponse:
     return ReviewWorkflowResponse(succeeded=succeeded, failed=len(items) - succeeded, items=items)
 
 
-@router.get("/tasks", response_model=list[ReviewTask])
+@router.get("/tasks", response_model=ReviewTaskPage)
 def list_review_tasks(
     assignee: str | None = Query(default=None, max_length=200),
     state: str | None = Query(default=None, pattern="^(assigned|approved|rejected|needs_more)$"),
-) -> list[ReviewTask]:
+    q: str | None = Query(default=None, max_length=200),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, alias="pageSize", ge=1, le=100),
+) -> ReviewTaskPage:
     clauses, params = ["1=1"], []
     if assignee:
-        clauses.append("assignee=?")
+        clauses.append("rt.assignee=?")
         params.append(assignee)
     if state:
-        clauses.append("state=?")
+        clauses.append("rt.state=?")
         params.append(state)
+    if q and q.strip():
+        needle = f"%{q.strip().lower()}%"
+        clauses.append("(LOWER(p.name) LIKE ? OR LOWER(rt.pattern_id) LIKE ? OR LOWER(rt.assignee) LIKE ?)")
+        params.extend([needle, needle, needle])
+    where = " AND ".join(clauses)
+    with database(get_settings()) as connection:
+        total = connection.execute(
+            f"SELECT COUNT(*) AS count FROM review_tasks rt JOIN patterns p ON p.id=rt.pattern_id WHERE {where}", params
+        ).fetchone()["count"]
+        rows = connection.execute(
+            f"SELECT rt.*,p.name AS pattern_name FROM review_tasks rt JOIN patterns p ON p.id=rt.pattern_id "
+            f"WHERE {where} ORDER BY rt.assigned_at DESC,rt.pattern_id ASC LIMIT ? OFFSET ?",
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+    return ReviewTaskPage(items=[_task(row) for row in rows], page=page, pageSize=page_size,
+                          total=total, totalPages=(total + page_size - 1) // page_size)
+
+
+@router.get("/summary", response_model=ReviewOperationsSummary)
+def review_operations_summary() -> ReviewOperationsSummary:
+    """Summarize review progress for draft, internal-only patterns."""
     with database(get_settings()) as connection:
         rows = connection.execute(
-            f"SELECT * FROM review_tasks WHERE {' AND '.join(clauses)} ORDER BY assigned_at DESC, pattern_id",
-            params,
+            "SELECT rt.assignee,rt.state,COUNT(*) AS count FROM patterns p "
+            "LEFT JOIN review_tasks rt ON rt.pattern_id=p.id "
+            "WHERE p.status='draft' AND p.visibility='internal_only' "
+            "GROUP BY rt.assignee,rt.state ORDER BY rt.assignee ASC,rt.state ASC"
         ).fetchall()
-    return [_task(row) for row in rows]
+    states = {key: 0 for key in ("assigned", "approved", "rejected", "needs_more")}
+    unassigned = 0
+    grouped: dict[str, dict[str, int]] = {}
+    for row in rows:
+        count = int(row["count"])
+        if row["assignee"] is None:
+            unassigned += count
+            continue
+        assignee = row["assignee"]
+        state = row["state"]
+        states[state] += count
+        grouped.setdefault(assignee, {key: 0 for key in states})[state] += count
+    total = unassigned + sum(states.values())
+    completed = states["approved"] + states["rejected"] + states["needs_more"]
+    assignees = []
+    for assignee, counts in sorted(grouped.items()):
+        assignee_total = sum(counts.values())
+        assignee_completed = counts["approved"] + counts["rejected"] + counts["needs_more"]
+        assignees.append(ReviewAssigneeSummary(
+            assignee=assignee, total=assignee_total, completed=assignee_completed,
+            completionRate=round(assignee_completed * 100 / assignee_total, 2) if assignee_total else 0.0,
+            assigned=counts["assigned"], approved=counts["approved"], rejected=counts["rejected"],
+            needsMore=counts["needs_more"],
+        ))
+    return ReviewOperationsSummary(
+        total=total, unassigned=unassigned, completed=completed,
+        completionRate=round(completed * 100 / total, 2) if total else 0.0,
+        assigned=states["assigned"], approved=states["approved"], rejected=states["rejected"],
+        needsMore=states["needs_more"], assignees=assignees,
+    )
+
+
+@router.get("/operations", response_model=ReviewOperationsResponse)
+def review_operations(
+    assignee: str | None = Query(default=None, max_length=200),
+    state: str | None = Query(default=None, pattern="^(unassigned|assigned|approved|rejected|needs_more)$"),
+    q: str | None = Query(default=None, max_length=200),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, alias="pageSize", ge=1, le=100),
+) -> ReviewOperationsResponse:
+    """Combined dashboard contract over every draft, internal-only pattern."""
+    summary = review_operations_summary()
+    clauses = ["p.status='draft'", "p.visibility='internal_only'"]
+    params: list[object] = []
+    if assignee:
+        clauses.append("rt.assignee=?")
+        params.append(assignee)
+    if state == "unassigned":
+        clauses.append("rt.pattern_id IS NULL")
+    elif state:
+        clauses.append("rt.state=?")
+        params.append(state)
+    if q and q.strip():
+        needle = f"%{q.strip().lower()}%"
+        clauses.append("(LOWER(p.name) LIKE ? OR LOWER(p.id) LIKE ? OR LOWER(COALESCE(rt.assignee,'')) LIKE ?)")
+        params.extend([needle, needle, needle])
+    where = " AND ".join(clauses)
+    with database(get_settings()) as connection:
+        total = int(connection.execute(
+            f"SELECT COUNT(*) AS count FROM patterns p LEFT JOIN review_tasks rt ON rt.pattern_id=p.id WHERE {where}", params
+        ).fetchone()["count"])
+        rows = connection.execute(
+            "SELECT p.id AS pattern_id,p.name AS pattern_name,rt.assignee,rt.state,rt.assigned_at,"
+            "rt.decided_by,rt.decided_at FROM patterns p LEFT JOIN review_tasks rt ON rt.pattern_id=p.id "
+            f"WHERE {where} ORDER BY CASE WHEN rt.assigned_at IS NULL THEN 1 ELSE 0 END,"
+            "rt.assigned_at DESC,p.id ASC LIMIT ? OFFSET ?",
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+    items = [ReviewOperationsItem(
+        patternId=row["pattern_id"], patternName=row["pattern_name"], assignee=row["assignee"],
+        state=row["state"] or "unassigned",
+        assignedAt=timestamp_value(row["assigned_at"]) if row["assigned_at"] else None,
+        decidedBy=row["decided_by"], decidedAt=timestamp_value(row["decided_at"]) if row["decided_at"] else None,
+    ) for row in rows]
+    return ReviewOperationsResponse(summary=summary, workloads=summary.assignees, items=items,
+                                    page=page, pageSize=page_size, total=total,
+                                    pages=(total + page_size - 1) // page_size)
 
 
 @router.post("/batch-assign", response_model=ReviewWorkflowResponse)

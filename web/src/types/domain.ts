@@ -15,6 +15,22 @@ export type Pattern = {
 
 export type RightsEvidence = { id: string; filename: string; contentType?: string | null; sizeBytes?: number | null; storageKey?: string | null; url?: string | null; checksumSha256?: string | null; note?: string | null };
 export type ReviewTask = { patternId: string; assignee: string; state: "assigned" | "approved" | "rejected" | "needs_more"; decisionNote?: string | null; assignedAt: string; decidedBy?: string | null; decidedAt?: string | null };
+export type ReviewOperationsState = "unassigned" | ReviewTask["state"];
+export type ReviewOperationsSummary = {
+  total: number; unassigned: number; assigned: number; approved: number; rejected: number; needsMore: number; completed: number; completionRate: number; assignees: ReviewerWorkload[];
+};
+export type ReviewerWorkload = {
+  assignee: string; total: number; assigned: number; approved: number; rejected: number; needsMore: number; completed: number; completionRate: number;
+};
+export type ReviewOperationsItem = {
+  patternId: string; patternName?: string | null; assignee?: string | null; state: ReviewOperationsState;
+  assignedAt?: string | null; decidedBy?: string | null; decidedAt?: string | null;
+};
+export type ReviewOperationsPage = {
+  summary: ReviewOperationsSummary; workloads: ReviewerWorkload[]; items: ReviewOperationsItem[];
+  page: number; pageSize: number; total: number; pages: number;
+};
+export type ReviewTaskPage = { items: ReviewTask[]; page: number; pageSize: number; total: number; totalPages: number };
 export type ReviewQueueKind = "all" | "low_resolution" | "name_review" | "duplicate_name" | "uncategorized" | "category_suggestion";
 export type CatalogReviewQueueItem = {
   patternId: string; name: string; category: string; imageUrl?: string | null;
@@ -44,6 +60,14 @@ export type PatternAuditLog = {
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;
   createdAt: string;
+};
+
+export type AuditLogPage = {
+  items: PatternAuditLog[];
+  page: number;
+  pageSize: number;
+  total: number;
+  pages: number;
 };
 
 export type PatternPage<T = Pattern> = { items: T[]; page: number; pageSize: number; total: number; pages: number };

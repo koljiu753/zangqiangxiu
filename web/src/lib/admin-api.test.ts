@@ -48,6 +48,15 @@ describe("admin API client", () => {
     expect(fetchMock.mock.calls[1][0]).toBe("http://catalog.test/api/v1/admin/review-queues/patterns?queue=category_suggestion&page=2&pageSize=20&q=%E4%BA%91&suggestion=plant");
   });
 
+  it("loads filtered and paginated review operations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], page: 2, pageSize: 20, total: 30, pages: 2 }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { getReviewOperations } = await import("./admin-api");
+    await getReviewOperations({ assignee: "专家甲", state: "needs_more", q: "云纹", page: 2 });
+    expect(fetchMock.mock.calls[0][0]).toBe("http://catalog.test/api/v1/admin/reviews/operations?page=2&pageSize=20&assignee=%E4%B8%93%E5%AE%B6%E7%94%B2&state=needs_more&q=%E4%BA%91%E7%BA%B9");
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get("X-Admin-Token")).toBe("test-token");
+  });
+
   it("proxies Catalog CSV export filters through the server client", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("csv", { status: 200, headers: { "Content-Type": "text/csv" } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -91,7 +100,7 @@ describe("admin API client", () => {
 
   it("keeps evidence and review workflow calls on the server admin client", async () => {
     vi.stubEnv("CATALOG_ACTOR_SIGNING_SECRET", "actor-secret-that-is-at-least-32-bytes");
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ succeeded: 1, failed: 0, items: [] }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ succeeded: 1, failed: 0, items: [], page: 1, pageSize: 20, total: 0, totalPages: 0 }), { status: 200, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
     const { updatePatternEvidence, getReviewTasks, assignReviewTask, bulkAssignReviewTasks, decideReviewTask } = await import("./admin-api");
     await updatePatternEvidence("pat_001", { sourceDescription: "馆藏采集" });

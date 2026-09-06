@@ -102,7 +102,7 @@ def test_decision_requires_assignee_and_controls_review_risk(tmp_path, monkeypat
         pattern = client.get("/api/v1/admin/patterns/pat_review_flow_2", headers=headers).json()
         assert pattern["review"]["issues"] == []
         assert pattern["review"]["reviewedBy"] == "reviewer-a"
-        tasks = client.get("/api/v1/admin/reviews/tasks?assignee=reviewer-a&state=approved", headers=headers).json()
+        tasks = client.get("/api/v1/admin/reviews/tasks?assignee=reviewer-a&state=approved", headers=headers).json()["items"]
         assert [task["patternId"] for task in tasks] == ["pat_review_flow_2"]
         logs = client.get("/api/v1/admin/patterns/pat_review_flow_2/audit-logs", headers=headers).json()
         assert [item["action"] for item in logs] == ["review_approved", "review_assigned", "created"]
@@ -175,7 +175,7 @@ def test_content_changes_invalidate_completed_review_decisions(tmp_path, monkeyp
                     files={"file": ("proof.pdf", b"%PDF-test", "application/pdf")},
                 )
             assert response.status_code == 200
-            task = client.get(f"/api/v1/admin/reviews/tasks?assignee={reviewer}&state=assigned", headers=headers).json()
+            task = client.get(f"/api/v1/admin/reviews/tasks?assignee={reviewer}&state=assigned", headers=headers).json()["items"]
             reset = next(item for item in task if item["patternId"] == pattern_id)
             assert reset["decisionNote"] is None
             assert reset["decidedBy"] is None
@@ -203,7 +203,7 @@ def test_noop_evidence_update_does_not_invalidate_review(tmp_path, monkeypatch):
         }]})
         response = client.patch(f"/api/v1/admin/patterns/{pattern_id}/evidence", headers=headers, json={"rightsStatus": "verified"})
         assert response.status_code == 200
-        tasks = client.get(f"/api/v1/admin/reviews/tasks?assignee={reviewer}&state=approved", headers=headers).json()
+        tasks = client.get(f"/api/v1/admin/reviews/tasks?assignee={reviewer}&state=approved", headers=headers).json()["items"]
         assert any(item["patternId"] == pattern_id for item in tasks)
         logs = client.get(f"/api/v1/admin/patterns/{pattern_id}/audit-logs", headers=headers).json()
         assert all(item["action"] != "review_invalidated" for item in logs)
@@ -313,3 +313,41 @@ def test_bulk_assign_requires_signature_is_bounded_idempotent_and_assignment_onl
             "patternIds": [f"pat_bulk_{index:03d}" for index in range(51)], "assignee": "专家丙", "requestId": "bulk-safe-003"
         })
         assert oversized.status_code == 422
+
+
+def test_review_operations_summary_filters_and_stable_pagination(tmp_path, monkeypatch):
+    with client_for(tmp_path, monkeypatch) as client:
+        admin = {"X-Admin-Token": "test-token"}
+        for pattern_id, name in (("pat_ops_001", "牡丹纹"), ("pat_ops_002", "云纹"), ("pat_ops_003", "鱼纹")):
+            payload = sample(pattern_id)
+            payload["name"] = name
+            assert client.post("/api/v1/admin/patterns", headers=admin, json=payload).status_code == 201
+        path = "/api/v1/admin/reviews/batch-assign"
+        assigned = client.post(path, headers=signed_headers("POST", path, "ops-assign-http"), json={"items": [
+            {"patternId": "pat_ops_001", "assignee": "reviewer-a", "requestId": "ops-assign-001"},
+            {"patternId": "pat_ops_002", "assignee": "reviewer-b", "requestId": "ops-assign-002"},
+        ]})
+        assert assigned.status_code == 200
+
+        summary = client.get("/api/v1/admin/reviews/summary", headers=admin).json()
+        assert summary == {
+            "total": 3, "unassigned": 1, "assigned": 2, "approved": 0, "rejected": 0,
+            "needsMore": 0, "completed": 0, "completionRate": 0.0,
+            "assignees": [
+                {"assignee": "reviewer-a", "total": 1, "assigned": 1, "approved": 0, "rejected": 0,
+                 "needsMore": 0, "completed": 0, "completionRate": 0.0},
+                {"assignee": "reviewer-b", "total": 1, "assigned": 1, "approved": 0, "rejected": 0,
+                 "needsMore": 0, "completed": 0, "completionRate": 0.0},
+            ],
+        }
+        operations = client.get("/api/v1/admin/reviews/operations?state=unassigned&q=鱼&pageSize=1", headers=admin).json()
+        assert operations["total"] == 1
+        assert operations["pages"] == 1
+        assert operations["items"][0]["patternName"] == "鱼纹"
+        assert operations["items"][0]["state"] == "unassigned"
+
+        page = client.get("/api/v1/admin/reviews/tasks?page=1&pageSize=1&q=牡丹", headers=admin).json()
+        assert page["total"] == 1
+        assert page["totalPages"] == 1
+        assert page["items"][0]["patternName"] == "牡丹纹"
+        assert client.get("/api/v1/admin/reviews/operations").status_code == 401

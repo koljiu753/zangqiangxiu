@@ -1,6 +1,6 @@
 import "server-only";
 import { createHmac, randomUUID } from "node:crypto";
-import type { AdminPattern, CatalogReviewQueuePage, CatalogReviewQueueSummary, PatternAuditLog, PatternPage, ReviewQueueKind, ReviewTask, RightsEvidence } from "@/types/domain";
+import type { AdminPattern, AuditLogPage, CatalogReviewQueuePage, CatalogReviewQueueSummary, PatternAuditLog, PatternPage, ReviewOperationsPage, ReviewOperationsState, ReviewQueueKind, ReviewTask, ReviewTaskPage, RightsEvidence } from "@/types/domain";
 
 export type BatchReviewInput = { patternId: string; reviewedBy: string; reviewedAt: string; issues: string[] };
 export type BatchOperationResponse = {
@@ -124,6 +124,25 @@ export function getPatternAuditLogs(id: string) {
   return adminRequest<PatternAuditLog[]>(`/admin/patterns/${encodeURIComponent(id)}/audit-logs`);
 }
 
+export type AuditLogFilters = {
+  actor?: string;
+  action?: string;
+  patternId?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+};
+
+export function getAuditLogs(filters: AuditLogFilters = {}) {
+  const query = new URLSearchParams({ page: String(filters.page || 1), pageSize: "20" });
+  (["actor", "action", "patternId", "q", "from", "to"] as const).forEach((key) => {
+    const value = filters[key]?.trim();
+    if (value) query.set(key, value);
+  });
+  return adminRequest<AuditLogPage>(`/admin/audit-logs?${query}`);
+}
+
 export type EvidenceUpdateInput = { sourceDescription?: string | null; originClaim?: string | null; rightsStatus?: string | null; rightsOwner?: string | null; rightsLicense?: string | null; evidence?: RightsEvidence[]; verifiedBy?: string | null; verifiedAt?: string | null; verificationNote?: string | null; reviewNote?: string | null };
 export type ReviewWorkflowResponse = { succeeded: number; failed: number; items: Array<{ patternId: string; status: "succeeded" | "failed"; code?: string | null; message?: string | null; replayed: boolean; task?: ReviewTask | null }> };
 export type ReviewAssignmentInput = { patternId: string; assignee: string; requestId: string };
@@ -144,11 +163,22 @@ export function downloadPatternEvidenceFile(patternId: string, evidenceId: strin
   return adminRawRequest(`/admin/patterns/${encodeURIComponent(patternId)}/evidence-files/${encodeURIComponent(evidenceId)}`);
 }
 
-export function getReviewTasks(filters: { assignee?: string; state?: ReviewTask["state"] } = {}) {
+export async function getReviewTasks(filters: { assignee?: string; state?: ReviewTask["state"]; q?: string; page?: number } = {}) {
   const query = new URLSearchParams();
   if (filters.assignee) query.set("assignee", filters.assignee);
   if (filters.state) query.set("state", filters.state);
-  return adminRequest<ReviewTask[]>(`/admin/reviews/tasks${query.size ? `?${query}` : ""}`);
+  if (filters.q) query.set("q", filters.q);
+  if (filters.page) query.set("page", String(filters.page));
+  const result = await adminRequest<ReviewTaskPage>(`/admin/reviews/tasks${query.size ? `?${query}` : ""}`);
+  return result.items;
+}
+
+export function getReviewOperations(filters: { assignee?: string; state?: ReviewOperationsState; q?: string; page?: number } = {}) {
+  const query = new URLSearchParams({ page: String(filters.page || 1), pageSize: "20" });
+  if (filters.assignee) query.set("assignee", filters.assignee);
+  if (filters.state) query.set("state", filters.state);
+  if (filters.q) query.set("q", filters.q);
+  return adminRequest<ReviewOperationsPage>(`/admin/reviews/operations?${query}`);
 }
 
 export function getReviewQueueSummary() { return adminRequest<CatalogReviewQueueSummary>("/admin/review-queues/summary"); }

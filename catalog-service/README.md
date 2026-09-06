@@ -58,8 +58,12 @@ CATALOG_DATABASE_BACKEND=postgresql CATALOG_DATABASE_URL=postgresql://... python
 - `POST /api/v1/admin/patterns/{id}/publish`，执行安全发布
 - `POST /api/v1/admin/patterns/{id}/withdraw`，先从 AI 撤回，再将 Catalog 恢复为草稿/内部状态
 - `POST /api/v1/admin/patterns/batch-review`，逐条写入真实复核人、时间和风险项，最多 100 条
+- `GET /api/v1/admin/reviews/summary`，汇总所有 `draft/internal_only` 候选的未分派、各决定状态、完成率和审核人工作量
+- `GET /api/v1/admin/reviews/tasks?page=1&pageSize=20&assignee=...&state=assigned&q=...`，稳定分页查询已创建的审核任务；名称、纹样 ID 和审核人均可搜索
+- `GET /api/v1/admin/reviews/operations?page=1&pageSize=20`，返回运营台所需的 `summary`、`workloads` 和包含未分派候选的分页 `items`；支持 `assignee`、`state`（含 `unassigned`）和 `q`
 - `POST /api/v1/admin/patterns/batch-publish`，逐条执行门禁与 AI 同步，最多 100 条
 - `GET /api/v1/admin/patterns/{id}/audit-logs`
+- `GET /api/v1/admin/audit-logs`：全局只读审计检索，支持 `actor`、`action`、`patternId`、`q`、`from`、`to` 和 `page`/`pageSize`；按时间和 ID 倒序稳定分页。
 
 管理员请求需携带：
 

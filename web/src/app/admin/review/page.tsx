@@ -29,7 +29,7 @@ export default async function ReviewWorkbenchPage({ searchParams }: Props) {
   ];
   const lastPage = Math.max(result.pages, 1);
   return <main className="inner-page admin-page review-workbench">
-    <nav className="admin-breadcrumb"><Link href="/admin/dashboard">数据治理仪表盘</Link><span>/</span><strong>审核工作台</strong></nav>
+    <nav className="admin-breadcrumb"><Link href="/admin/dashboard">数据治理仪表盘</Link><span>/</span><strong>审核工作台</strong><span>/</span><Link href="/admin/review/operations">运营看板</Link><span>/</span><Link href="/admin/audit">审计日志</Link></nav>
     <header className="page-hero"><p className="eyebrow">SPECIALTY REVIEW QUEUES</p><h1>纹样审核工作台</h1><p>当前身份：{principal.subject}（{principal.role}）。专项信号由目录来源数据派生，用于分流处理，不会自动修改或发布档案。</p></header>
     <nav className="review-quick-filters" aria-label="专项审核队列">{filters.map((filter) => <Link aria-current={queue === filter.key ? "page" : undefined} href={`/admin/review?queue=${filter.key}`} key={filter.key}>{filter.label}<strong>{filter.count}</strong></Link>)}</nav>
     <form className="admin-filters"><input type="hidden" name="queue" value={queue}/><label>名称或分类<input name="q" defaultValue={query.q || ""} maxLength={100} placeholder="搜索当前专项"/></label><label>分类建议<input name="suggestion" defaultValue={query.suggestion || ""} maxLength={100} placeholder="建议编码或名称"/></label><button type="submit">更新队列</button></form>
