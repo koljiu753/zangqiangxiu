@@ -13,10 +13,13 @@ __pycache__/
 .verify-venv/
 .release-venv/
 .ruff_cache/
+.pip-audit-cache/
 *.pyc
 *.pyo
 *.db
 *.sqlite3
+*.tsbuildinfo
 data/output/
 ai-service/storage/
 backups/
+artifacts/sbom/

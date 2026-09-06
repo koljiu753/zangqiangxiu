@@ -32,6 +32,7 @@ from .schemas import (
 )
 from .similarity import ALGORITHM_VERSION, extract_feature, similarity
 from .storage import create_storage, decode_job, utcnow
+from .observability import request_observability
 
 ALLOWED_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 EXTENSIONS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
@@ -141,13 +142,15 @@ app = FastAPI(
     description="Real image ingestion and analysis task service. Optional model providers fail explicitly when unconfigured.",
     lifespan=lifespan,
 )
+app.middleware("http")(request_observability)
 _initial_settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(_initial_settings.cors_origins),
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "Idempotency-Key", "X-Service-Token", "X-Asset-Capability"],
+    allow_headers=["Content-Type", "Authorization", "Idempotency-Key", "X-Service-Token", "X-Asset-Capability", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
 )
 
 

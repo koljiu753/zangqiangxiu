@@ -44,6 +44,18 @@ function Test-HttpEndpoint {
     }
 }
 
+function Test-RequestIdEndpoint {
+    param([string]$Name, [string]$Uri)
+    $requestId = "health-$([Guid]::NewGuid().ToString('N'))"
+    try {
+        $response = Invoke-WebRequest -Uri $Uri -Headers @{ "X-Request-ID" = $requestId } -TimeoutSec $HttpTimeoutSeconds -UseBasicParsing
+        $actual = [string]$response.Headers["X-Request-ID"]
+        Write-CheckResult $Name ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400 -and $actual -eq $requestId) "HTTP $($response.StatusCode), request-id=$actual"
+    } catch {
+        Write-CheckResult $Name $false $_.Exception.Message
+    }
+}
+
 function Test-HttpStatus {
     param([string]$Name, [string]$Uri, [int]$ExpectedStatus, [string]$ExpectedLocation)
     $handler = [Net.Http.HttpClientHandler]::new()
@@ -127,10 +139,13 @@ $minio = Invoke-Docker ($composeArgs + @("exec", "-T", "minio", "curl", "-fsS", 
 Write-CheckResult "MinIO connectivity" ($minio.ExitCode -eq 0) $(if ($minio.ExitCode -eq 0) { "ready endpoint reachable" } else { $minio.Output.Trim() })
 
 Test-HttpEndpoint "Web" "http://127.0.0.1:3000/"
+Test-RequestIdEndpoint "Web request ID" "http://127.0.0.1:3000/"
 Test-HttpStatus "Admin authentication redirect" "http://127.0.0.1:3000/admin" 307 "/admin/login?next=%2Fadmin"
 Test-HttpEndpoint "Admin login" "http://127.0.0.1:3000/admin/login"
 Test-HttpEndpoint "Catalog readiness" "http://127.0.0.1:8001/ready"
 Test-HttpEndpoint "AI readiness" "http://127.0.0.1:8002/ready"
+Test-RequestIdEndpoint "Catalog request ID" "http://127.0.0.1:8001/health"
+Test-RequestIdEndpoint "AI request ID" "http://127.0.0.1:8002/health"
 Test-AnonymousPostStatus "AI reference registration isolation" "http://127.0.0.1:8002/v1/references" '{"asset_id":"healthcheck-missing","review_status":"approved","visibility":"public"}' 401
 Test-AnonymousPostStatus "AI internal analysis isolation" "http://127.0.0.1:8002/v1/analyses" '{"asset_id":"healthcheck-missing","tasks":["similar"],"scope":"internal"}' 401
 

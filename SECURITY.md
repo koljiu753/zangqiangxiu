@@ -34,10 +34,13 @@ Authenticated Web mutations also carry `X-Admin-Actor`, a Unix timestamp, and `X
 
 Before a release:
 
-1. Run application tests and `npm audit --omit=dev`.
+1. Run application tests, `pip-audit` against both Python runtime requirement files, and `npm audit --omit=dev`.
 2. Build images with `docker compose build --pull` to receive patched base-image layers.
 3. Run `docker compose config` and confirm no host port uses a wildcard address.
 4. Scan built images with the registry or deployment platform's vulnerability scanner.
-5. Verify backups and restore procedures before changing database or object-storage versions.
+5. Retain the generated CycloneDX JSON SBOMs with the release evidence.
+6. Verify backups and restore procedures before changing database or object-storage versions.
 
-The image tags are intentionally version-specific but not digest-pinned so routine security updates can be pulled. For reproducible regulated releases, record and deploy reviewed image digests.
+GitHub Actions are pinned to immutable commit SHAs, with their major versions retained in comments for update tooling and reviewers. Python runtime and development dependency roles are separate and direct requirements are exactly pinned.
+
+The image tags are intentionally version-specific but not digest-pinned: the current Compose/Dockerfiles use mutable language/database tags (`python:3.12-slim`, `node:24-alpine`, and `postgres:17-alpine`) plus date-versioned MinIO server/client tags. Digest pinning was evaluated but not applied blindly because it is platform-specific and would silently prevent patched base layers from being pulled. For a regulated release, resolve, review, record, and deploy platform-specific digests as part of the release evidence.

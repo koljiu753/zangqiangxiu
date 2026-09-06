@@ -19,6 +19,7 @@ from .schemas import (AuditLog, BatchOperationItem, BatchOperationResponse, Batc
 from .security import require_admin
 from .review_workflow import router as review_workflow_router
 from .evidence_storage import delete_object, fetch_object, store_upload
+from .observability import request_observability
 
 
 @asynccontextmanager
@@ -30,12 +31,14 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Zhixiu Pattern Catalog", version="0.1.0", lifespan=lifespan)
+app.middleware("http")(request_observability)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(get_settings().cors_origins),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["Content-Type", "X-Admin-Token", "X-Admin-Actor", "X-Admin-Timestamp", "X-Admin-Signature", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
 )
 app.include_router(review_workflow_router)
 

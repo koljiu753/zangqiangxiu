@@ -12,7 +12,7 @@ def extract_feature(image_path: Path) -> list[float]:
     with Image.open(image_path) as source:
         rgb = ImageOps.exif_transpose(source).convert("RGB")
         rgb.thumbnail((256, 256))
-        pixels = list(rgb.getdata())
+        pixels = list(rgb.get_flattened_data())
 
         histogram = [0.0] * 64
         for red, green, blue in pixels:
@@ -23,7 +23,7 @@ def extract_feature(image_path: Path) -> list[float]:
 
         # ImageOps.fit makes spatial features comparable across aspect ratios.
         thumbnail = ImageOps.fit(rgb.convert("L"), (8, 8), method=Image.Resampling.LANCZOS)
-        spatial = [value / 255.0 for value in thumbnail.getdata()]
+        spatial = [value / 255.0 for value in thumbnail.get_flattened_data()]
 
     # Equal L2 normalization means cosine similarity remains bounded and interpretable.
     return _normalize(histogram) + _normalize(spatial)
@@ -42,4 +42,3 @@ def similarity(left: list[float], right: list[float]) -> float:
 def _normalize(values: list[float]) -> list[float]:
     norm = math.sqrt(sum(value * value for value in values)) or 1.0
     return [value / norm for value in values]
-

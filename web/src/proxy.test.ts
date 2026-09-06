@@ -17,5 +17,14 @@ describe("admin proxy redirects", () => {
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/admin/login?next=%2Fadmin%3Frisk%3Dready",
     );
+    expect(response.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("preserves a valid request id on public requests", async () => {
+    const response = await proxy(new NextRequest("http://localhost:3000/", {
+      headers: { "X-Request-ID": "browser-flow-42" },
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-request-id")).toBe("browser-flow-42");
   });
 });

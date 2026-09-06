@@ -9,7 +9,7 @@ def extract_palette(image_path: Path, color_count: int = 5) -> list[dict]:
         image = source.convert("RGBA")
         image.thumbnail((512, 512))
         # Ignore transparent pixels; composite opaque pixels without inventing background color.
-        pixels = [(r, g, b) for r, g, b, a in image.getdata() if a >= 16]
+        pixels = [(r, g, b) for r, g, b, a in image.get_flattened_data() if a >= 16]
     if not pixels:
         raise ValueError("Image contains no visible pixels")
 
@@ -28,4 +28,3 @@ def extract_palette(image_path: Path, color_count: int = 5) -> list[dict]:
             "ratio": round(count / total, 6),
         })
     return result
-

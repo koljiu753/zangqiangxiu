@@ -77,6 +77,22 @@ Web 发起的变更请求还会携带经 `CATALOG_ACTOR_SIGNING_SECRET` 做 HMAC
 
 治理统计包含总数、`draft/published/archived` 数量、各版权状态数量、存在审核风险数、版权未核验数、满足发布门禁数，以及按数量排序的分类分布。`categoryTop` 允许 `0–50`，设为 `0` 时不返回分类排行。统计接口不会把“满足门禁”自动视为已审核或已发布。
 
+## MVD 数据审核准备
+
+审核准备工具读取 `data/output/mvd/catalog_seed.csv` 并与当前 catalog 数据库对照，稳定生成 CSV 和 JSON 报告。报告含原始路径、来源 locator、对象键、SHA-256、字节数、尺寸、分类建议，以及低清、名称待核、同名和相同哈希组风险。默认阈值为任一边小于 256 像素即标记低清。
+
+```powershell
+# 默认 dry-run：只写报告，不修改数据库
+python -m app.review_readiness --database catalog.db
+
+# 明确申请后才回填可验证的 seed 来源定位信息
+python -m app.review_readiness --database catalog.db --apply
+```
+
+命令应从 `catalog-service` 目录运行；默认报告目录是 `data/output/mvd/review-readiness/`，也可用 `--seed`、`--output` 和 `--low-res-edge` 覆盖。输出不含生成时间，记录和风险均稳定排序，便于重复运行与版本比较。
+
+`--apply` 仅把 locator、原始路径、对象键、哈希、字节数和尺寸合并到 `source_json.seedProvenance`，且只处理数据库中已存在的 pattern；它不会写分类正式字段，因为当前 schema 没有独立“分类建议”列，也绝不会修改名称、rights、review、状态、可见性、批准或发布。实际变更会写入 `audit_logs`，相同输入再次运行不会重复写入。
+
 CSV 导出与管理列表共用 `status`、`visibility`、`risk` 筛选定义，默认最多 1000 行、硬上限 5000 行，并通过 `X-Exported-Rows` 返回本次行数。文件采用带 BOM 的 UTF-8，复杂字段序列化为 JSON；以 `= + - @` 或控制字符开头的文本会转义为普通文本，防止 Excel 等表格程序执行公式。导出接口仅接受管理员令牌且响应禁止缓存。
 
 发布属于服务端强约束：名称必须非空、`rights.status` 必须为 `verified`、`review.issues` 必须为空，且对应 `review_tasks.state` 必须为 `approved`。新建和普通 PATCH 都不能把记录置为 `published/public`，也不能把已发布记录直接改回内部状态；这些转换只能经过专用发布/撤回接口。创建、编辑、发布和撤回都会写入审计日志。

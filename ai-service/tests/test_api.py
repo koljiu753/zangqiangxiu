@@ -26,10 +26,14 @@ def capability(asset):
 
 
 def test_health(client):
-    assert client.get("/health").json() == {"status": "ok", "database": "ok"}
-    assert client.get("/ready").json() == {
+    health = client.get("/health", headers={"X-Request-ID": "ai-health-test"})
+    assert health.json() == {"status": "ok", "database": "ok"}
+    assert health.headers["X-Request-ID"] == "ai-health-test"
+    ready = client.get("/ready")
+    assert ready.json() == {
         "status": "ready", "database": "sqlite", "asset_store": "local"
     }
+    assert ready.headers["X-Request-ID"]
 
 
 def test_capabilities_report_only_real_available_features(client):

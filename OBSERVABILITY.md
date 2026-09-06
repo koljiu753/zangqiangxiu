@@ -17,6 +17,17 @@
 - PostgreSQL 可通过 `pg_isready` 接受连接；
 - MinIO readiness 端点可访问；
 - Web 首页、Catalog `/ready`、AI `/ready` 返回成功 HTTP 状态。
+- Web、Catalog、AI 都会回送 `X-Request-ID`，健康检查会用自定义 ID 验证原值传播。
+
+## 请求关联与结构化日志
+
+三个 HTTP 服务统一使用 `X-Request-ID`。入站值仅在由 1–100 个字母、数字、`.`、`_`、`:` 或 `-` 组成时被保留，否则生成 UUID；响应始终携带最终 ID。Web Studio 调用 AI、Catalog 发布同步调用 AI 时会继续传递该 ID。
+
+访问日志为单行 JSON，关键字段包括 `level`、`event`、`service`、`request_id`、`method`、`path`、`status` 和 `duration_ms`。未处理异常另外输出 `request.failed` 事件和 `error_type`，不记录请求体、令牌或 Cookie。可使用请求 ID 在 Compose 日志中关联检索：
+
+```powershell
+docker compose logs web catalog ai | Select-String 'health-<request-id>'
+```
 
 全部通过时退出码为 `0`；任一检查失败时退出码为 `1`，可直接接入 CI、部署脚本或定时任务：
 

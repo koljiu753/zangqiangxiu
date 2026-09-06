@@ -71,8 +71,12 @@ def test_signed_actor_is_audited_and_forged_or_expired_signatures_are_rejected(t
 
 def test_health(tmp_path, monkeypatch):
     with client_for(tmp_path, monkeypatch) as client:
-        assert client.get("/health").json() == {"status": "ok"}
-        assert client.get("/ready").json() == {"status": "ready", "database": "sqlite"}
+        health = client.get("/health", headers={"X-Request-ID": "catalog-health-test"})
+        assert health.json() == {"status": "ok"}
+        assert health.headers["X-Request-ID"] == "catalog-health-test"
+        ready = client.get("/ready")
+        assert ready.json() == {"status": "ready", "database": "sqlite"}
+        assert ready.headers["X-Request-ID"]
 
 
 def test_production_rejects_default_admin_token(tmp_path, monkeypatch):

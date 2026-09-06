@@ -56,13 +56,15 @@ export async function analyzeStudioImage(options: {
   fetcher?: Fetch;
   pollDelayMs?: number;
   maxPolls?: number;
+  requestId?: string;
 }): Promise<AnalysisResult> {
   const fetcher = options.fetcher ?? fetch;
   const form = new FormData();
   form.append("image", options.file);
-  const asset = await json<UploadedAsset>(fetcher, `${options.aiBaseUrl}/assets`, { method: "POST", body: form });
+  const requestHeaders = options.requestId ? { "X-Request-ID": options.requestId } : undefined;
+  const asset = await json<UploadedAsset>(fetcher, `${options.aiBaseUrl}/assets`, { method: "POST", body: form, headers: requestHeaders });
   if (!asset.capability_token) throw new Error("分析服务未返回资源访问凭证");
-  const capabilityHeaders = { "X-Asset-Capability": asset.capability_token };
+  const capabilityHeaders = { "X-Asset-Capability": asset.capability_token, ...(options.requestId ? { "X-Request-ID": options.requestId } : {}) };
   const analysisHeaders: Record<string, string> = { "Content-Type": "application/json", ...capabilityHeaders };
   if (options.previewInternal && options.aiInternalToken) analysisHeaders["X-Service-Token"] = options.aiInternalToken;
   const accessHeaders = Object.fromEntries(Object.entries(analysisHeaders).filter(([key]) => key !== "Content-Type"));
