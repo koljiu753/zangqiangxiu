@@ -1,11 +1,15 @@
 [CmdletBinding()]
 param(
-    [string]$ComposeFile = (Join-Path $PSScriptRoot "..\compose.yaml"),
-    [string]$EnvironmentFile = (Join-Path $PSScriptRoot "..\.env"),
+    [string]$ComposeFile,
+    [string]$EnvironmentFile,
     [int]$HttpTimeoutSeconds = 10
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Net.Http
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $ComposeFile) { $ComposeFile = Join-Path $scriptDirectory "..\compose.yaml" }
+if (-not $EnvironmentFile) { $EnvironmentFile = Join-Path $scriptDirectory "..\.env" }
 $script:Failures = 0
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if (-not $docker) {
