@@ -28,7 +28,11 @@ def connect(target: Settings | Path) -> Connection:
     else:
         import psycopg
         from psycopg.rows import dict_row
-        raw = psycopg.connect(url, row_factory=dict_row, connect_timeout=10)
+        # Transaction poolers (including Supabase's transaction mode) can
+        # reuse a server connection whose prepared-statement namespace was
+        # populated by another client. Keep statements unprepared so the
+        # adapter works with both direct PostgreSQL and pooled connections.
+        raw = psycopg.connect(url, row_factory=dict_row, connect_timeout=10, prepare_threshold=None)
     return Connection(raw, backend)
 
 @contextmanager

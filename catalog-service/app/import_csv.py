@@ -28,6 +28,10 @@ def split_values(value: str) -> list[str]:
     return [item.strip() for item in value.replace("，", ",").split(",") if item.strip()]
 
 
+def boolean_value(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y"}
+
+
 def import_candidates(csv_path: Path, database_target: Settings | Path) -> tuple[int, int]:
     initialize(database_target)
     inserted = updated = 0
@@ -37,7 +41,7 @@ def import_candidates(csv_path: Path, database_target: Settings | Path) -> tuple
             exists = connection.execute("SELECT 1 FROM patterns WHERE id = ?", (pattern_id,)).fetchone()
             values = (
                 row.get("candidate_name") or "未命名纹样",
-                row.get("category_label") or row.get("motif_code") or row.get("type") or row.get("legacy_type") or "待分类",
+                row.get("category_label") or row.get("legacy_category") or row.get("motif_code_draft") or row.get("motif_code") or row.get("type") or row.get("legacy_type") or "待分类",
                 infer_ethnicity(row),
                 row.get("meaning") or row.get("description") or "",
                 json.dumps(split_values(row.get("color") or ""), ensure_ascii=False),
@@ -45,9 +49,30 @@ def import_candidates(csv_path: Path, database_target: Settings | Path) -> tuple
                 # Safety invariant: imports never publish, regardless of CSV values.
                 "draft",
                 "internal_only",
-                json.dumps({"system": row.get("source_system") or "csv", "legacyType": row.get("legacy_type") or None, "legacyId": row.get("legacy_id") or None, "originClaim": row.get("origin_claim") or "unknown"}, ensure_ascii=False),
-                json.dumps({"status": row.get("rights_status") or "unverified", "owner": None, "license": None}, ensure_ascii=False),
-                json.dumps({"issues": split_values((row.get("review_issues") or "").replace("|", ",")), "reviewedBy": None, "reviewedAt": None}, ensure_ascii=False),
+                json.dumps({
+                    "system": row.get("source_system") or "csv",
+                    "legacyType": row.get("legacy_type") or None,
+                    "legacyId": row.get("legacy_id") or None,
+                    "originClaim": row.get("origin_claim") or "unknown",
+                    "sourceLocator": row.get("source_locator") or None,
+                    "assetId": row.get("asset_id") or None,
+                    "objectKey": row.get("object_key") or None,
+                    "originalFilename": row.get("original_filename") or None,
+                    "mimeType": row.get("mime_type") or None,
+                    "byteSize": int(row["byte_size"]) if row.get("byte_size", "").isdigit() else None,
+                    "sha256": row.get("sha256") or None,
+                }, ensure_ascii=False),
+                json.dumps({
+                    "status": row.get("rights_status") or row.get("legal_basis") or "unverified",
+                    "owner": None,
+                    "license": None,
+                    "allowDisplay": boolean_value(row.get("allow_display") or ""),
+                    "allowDownload": boolean_value(row.get("allow_download") or ""),
+                    "allowCommercial": boolean_value(row.get("allow_commercial") or ""),
+                    "allowAiTraining": boolean_value(row.get("allow_ai_training") or ""),
+                    "allowDerivatives": boolean_value(row.get("allow_derivatives") or ""),
+                }, ensure_ascii=False),
+                json.dumps({"issues": split_values(((row.get("review_issues") or row.get("risk_flags") or "").replace("|", ","))), "reviewedBy": None, "reviewedAt": None}, ensure_ascii=False),
             )
             if exists:
                 connection.execute("""UPDATE patterns SET name=?,category=?,ethnicity=?,meaning=?,colors_json=?,image_url=?,status=?,visibility=?,source_json=?,rights_json=?,review_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""", (*values, pattern_id))
