@@ -6,7 +6,9 @@ import type { Pattern, PatternPage, WithSource } from "@/types/domain";
 
 const publicBaseUrl = process.env.NEXT_PUBLIC_CATALOG_API_BASE_URL?.replace(/\/$/, "");
 const internalBaseUrl = process.env.CATALOG_API_INTERNAL_BASE_URL?.replace(/\/$/, "");
-const allowDemo = process.env.NEXT_PUBLIC_ALLOW_DEMO_FALLBACK !== "false";
+// Demo content must be explicitly enabled. This prevents an incomplete
+// production deployment from silently presenting sample records as live data.
+const allowDemo = process.env.NEXT_PUBLIC_ALLOW_DEMO_FALLBACK === "true";
 const previewInternal = process.env.CATALOG_PREVIEW_INTERNAL === "true";
 
 export async function getPatterns(): Promise<WithSource<Pattern[]>> {

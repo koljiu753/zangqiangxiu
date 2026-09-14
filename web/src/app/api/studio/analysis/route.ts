@@ -7,7 +7,9 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const requestId = requestIdFrom(request.headers);
   const responseHeaders = { "Cache-Control": "no-store", [REQUEST_ID_HEADER]: requestId };
-  const aiBaseUrl = process.env.AI_API_INTERNAL_BASE_URL?.replace(/\/$/, "");
+  const aiBaseUrl = (
+    process.env.AI_API_INTERNAL_BASE_URL || process.env.NEXT_PUBLIC_AI_API_BASE_URL
+  )?.replace(/\/$/, "");
   if (!aiBaseUrl) return Response.json({ error: "AI 服务尚未配置" }, { status: 503, headers: responseHeaders });
   const maxBytes = Number(process.env.STUDIO_MAX_UPLOAD_BYTES || 10 * 1024 * 1024);
   const declaredLength = Number(request.headers.get("content-length") || 0);

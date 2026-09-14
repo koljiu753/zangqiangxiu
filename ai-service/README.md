@@ -13,6 +13,22 @@ uvicorn app.main:app --reload --port 8002
 
 访问 `http://127.0.0.1:8002/docs` 查看 OpenAPI 交互文档。
 
+## Vercel 部署
+
+本目录可作为一个独立 Vercel Project 的 Root Directory。仓库接入 Vercel 后，将项目的 **Root Directory** 设置为 `ai-service`；`api/index.py` 导出 FastAPI 应用，`vercel.json` 会将全部路径交给该应用。
+
+生产环境应在 Vercel Project Settings 中配置服务端变量；不要提交 `.env`，也不要给令牌或数据库连接串加 `NEXT_PUBLIC_` 前缀：
+
+- `ZHIXIU_AI_ENVIRONMENT=production`
+- `ZHIXIU_AI_DATABASE_BACKEND=postgresql`
+- `ZHIXIU_AI_DATABASE_URL`（使用支持连接池的 PostgreSQL 连接串）
+- `ZHIXIU_AI_ASSET_BACKEND=s3`
+- `ZHIXIU_AI_S3_BUCKET`、`ZHIXIU_AI_S3_REGION`、`ZHIXIU_AI_S3_ENDPOINT_URL`（按对象存储供应商配置；凭据走标准 AWS 环境变量）
+- `ZHIXIU_AI_INTERNAL_TOKEN`（与 Catalog 的 `CATALOG_AI_SERVICE_TOKEN` 一致）
+- `ZHIXIU_AI_CORS_ORIGINS`（正式前端 Origin）
+
+Vercel Function 的本地文件系统不是持久存储，因此项目必须显式选择 PostgreSQL 和 S3 兼容对象存储。生产安全校验仍在 lifespan 中执行；选定的云后端配置缺失或内部令牌缺失时会启动失败。部署后先验证 `/health`、`/ready` 与 `/v1/capabilities`。
+
 ## API流程
 
 1. `POST /v1/assets`：返回资产信息和仅展示一次的 `capability_token`。

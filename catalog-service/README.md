@@ -12,6 +12,24 @@ $env:CATALOG_ADMIN_TOKEN="replace-with-a-long-random-token"
 uvicorn app.main:app --reload --port 8000
 ```
 
+## Vercel 部署
+
+本目录可作为一个独立 Vercel Project 的 Root Directory。仓库接入 Vercel 后，将项目的 **Root Directory** 设置为 `catalog-service`；`api/index.py` 导出 FastAPI 应用，`vercel.json` 会将全部路径交给该应用。
+
+生产环境至少要在 Vercel Project Settings 中配置以下服务端变量；不要给密钥加 `NEXT_PUBLIC_` 前缀，也不要提交 `.env`：
+
+- `CATALOG_ENVIRONMENT=production`
+- `CATALOG_DATABASE_BACKEND=postgresql`
+- `CATALOG_DATABASE_URL`（使用支持连接池的 PostgreSQL 连接串）
+- `CATALOG_ADMIN_TOKEN`（随机且至少 32 字符）
+- `CATALOG_ACTOR_SIGNING_SECRET`（独立随机值，至少 32 字符）
+- `CATALOG_AI_INTERNAL_BASE_URL`（AI 服务地址，包含 `/v1`）
+- `CATALOG_AI_SERVICE_TOKEN`（与 AI 服务内部令牌一致）
+- `CATALOG_CORS_ORIGINS`（正式前端 Origin）
+- 私有证据存储使用的 `CATALOG_S3_BUCKET`、`CATALOG_S3_ACCESS_KEY`、`CATALOG_S3_SECRET_KEY` 及对应 region/endpoint
+
+生产校验仍在应用启动时执行；缺少管理、签名、服务间通信或私有证据存储配置会直接启动失败。Vercel 项目还必须显式选择 `postgresql`，避免误用不持久的本地 SQLite。部署后先验证 `/health` 和 `/ready`，再将地址配置给前端。
+
 环境变量：
 
 - `CATALOG_DATABASE_PATH`：SQLite 文件路径，默认 `catalog.db`

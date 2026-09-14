@@ -23,9 +23,11 @@ npm run dev
 
 ```dotenv
 NEXT_PUBLIC_CATALOG_API_BASE_URL=http://localhost:8001/api/v1
-NEXT_PUBLIC_AI_API_BASE_URL=http://localhost:8002/v1
 NEXT_PUBLIC_ALLOW_DEMO_FALLBACK=true
 CATALOG_API_INTERNAL_BASE_URL=http://localhost:8001/api/v1
+AI_API_INTERNAL_BASE_URL=http://localhost:8002/v1
+# 仅为旧 Docker 配置兼容；Vercel 优先使用 AI_API_INTERNAL_BASE_URL
+NEXT_PUBLIC_AI_API_BASE_URL=http://localhost:8002/v1
 CATALOG_ADMIN_TOKEN=replace-with-the-catalog-service-token
 ADMIN_UI_USER=admin
 ADMIN_UI_PASSWORD=replace-with-a-strong-password
@@ -33,6 +35,7 @@ ADMIN_UI_ROLE=publisher
 AUTH_SESSION_SECRET=replace-with-at-least-32-random-bytes
 AUTH_COOKIE_SECURE=false
 ADMIN_ALLOW_BASIC_AUTH=true
+STUDIO_MAX_UPLOAD_BYTES=10485760
 ```
 
 纹样接口支持直接数组或 `{ "items": [...] }`：
@@ -42,7 +45,7 @@ GET /api/v1/patterns
 POST /api/v1/analysis-jobs
 ```
 
-纹样 API 不可用且 `NEXT_PUBLIC_ALLOW_DEMO_FALLBACK=true` 时，页面会显示醒目的“演示数据”提示并使用 `src/lib/demo-data.ts`。AI 工作台不伪造结果；未连接后端时明确报错。生产环境建议把回退设为 `false`。
+纹样 API 不可用且显式设置 `NEXT_PUBLIC_ALLOW_DEMO_FALLBACK=true` 时，页面会显示醒目的“演示数据”提示并使用 `src/lib/demo-data.ts`。变量未设置或设置为其他值时不会回退。AI 工作台不伪造结果；未连接后端时明确报错。生产环境应设置为 `false`，只有需要公开演示版时才设为 `true`。
 
 `CATALOG_ADMIN_TOKEN` 只在服务端模块中读取，没有 `NEXT_PUBLIC_` 前缀，不会进入浏览器包。`/admin` 使用 HMAC 签名的 HttpOnly、SameSite 会话 Cookie；`reviewer` 可以编辑审核资料，只有 `publisher` 可以发布。所有写操作均再次检查身份、角色与 CSRF 令牌，管理页面还附加 CSP、防嵌入、MIME 嗅探和权限策略等安全响应头。
 
@@ -55,6 +58,29 @@ npm run lint
 npm test
 npm run build
 ```
+
+## Vercel 独立部署
+
+从 GitHub 导入仓库时，必须把 Vercel 项目的 **Root Directory** 设置为 `web`。Framework Preset 选择 Next.js；构建和安装命令可保持项目内 `vercel.json` 的 `npm run build` 与 `npm ci`，Output Directory 留空让 Vercel 自动识别。
+
+在 Project Settings → Environment Variables 中配置下列变量，并至少应用到 Production；Preview 环境可按需使用独立后端：
+
+| 变量 | 是否必需 | 用途 |
+| --- | --- | --- |
+| `CATALOG_API_INTERNAL_BASE_URL` | 是 | 服务端访问 Catalog，例如 `https://catalog.example.com/api/v1` |
+| `AI_API_INTERNAL_BASE_URL` | 是 | 服务端访问 AI，例如 `https://ai.example.com/v1` |
+| `NEXT_PUBLIC_CATALOG_API_BASE_URL` | 建议 | Catalog 的公开兼容地址；服务端地址未设置时使用 |
+| `NEXT_PUBLIC_ALLOW_DEMO_FALLBACK` | 是 | 正式数据设 `false`；明确发布演示体验才设 `true` |
+| `CATALOG_ADMIN_TOKEN` | 管理后台必需 | Web 服务端调用 Catalog 管理接口，绝不能加 `NEXT_PUBLIC_` 前缀 |
+| `AI_INTERNAL_TOKEN` | 内部预览必需 | Web 服务端读取 AI 内部资源，绝不能加 `NEXT_PUBLIC_` 前缀 |
+| `ADMIN_UI_USER` / `ADMIN_UI_PASSWORD` | 管理后台必需 | 后台登录凭据 |
+| `ADMIN_UI_ROLE` | 管理后台必需 | `reviewer` 或 `publisher` |
+| `AUTH_SESSION_SECRET` | 是 | 至少 32 字节随机值 |
+| `AUTH_COOKIE_SECURE` | 是 | Vercel HTTPS 环境设 `true` |
+| `ADMIN_ALLOW_BASIC_AUTH` | 建议 | 正式环境设 `false` |
+| `STUDIO_MAX_UPLOAD_BYTES` | 可选 | Studio 上传上限，默认 10 MiB |
+
+`CATALOG_PREVIEW_INTERNAL` 与 `STUDIO_PREVIEW_INTERNAL` 只适合受控的内部预览环境。公开生产站不要启用，否则页面会尝试读取未发布候选内容。后端 URL 必须是 Vercel 能访问的 HTTPS 地址，不能填写 `localhost`、Compose 服务名或私网地址。变量修改后需重新部署，Next.js 才会使用新配置。
 
 ## 后端对接注意
 

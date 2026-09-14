@@ -1,0 +1,9 @@
+.pytest_cache/
+__pycache__/
+tests/
+catalog.db
+*.db
+*.sqlite3
+Dockerfile
+REVIEW_WORKFLOW.md
+requirements-dev.txt
