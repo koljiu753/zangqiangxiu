@@ -1,0 +1,165 @@
+# Free, no-card preview deployment. Secrets are supplied in Render, never Git.
+# Render Free web services cannot receive private-network requests, so the
+# services call each other's HTTPS URLs with independent application auth.
+services:
+  - type: web
+    name: zangqiangxiu-ai
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: ai-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: ZHIXIU_AI_ENVIRONMENT
+        value: production
+      - key: ZHIXIU_AI_DATABASE_BACKEND
+        value: postgresql
+      - key: ZHIXIU_AI_DATABASE_URL
+        sync: false
+      - key: ZHIXIU_AI_ASSET_BACKEND
+        value: s3
+      - key: ZHIXIU_AI_S3_BUCKET
+        value: zhixiu-assets
+      - key: ZHIXIU_AI_S3_ENDPOINT_URL
+        value: https://wdcxshlukuxofrtvjsui.storage.supabase.co/storage/v1/s3
+      - key: ZHIXIU_AI_S3_REGION
+        value: us-west-2
+      - key: ZHIXIU_AI_S3_PREFIX
+        value: production/ai-assets
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: ZHIXIU_AI_INTERNAL_TOKEN
+        generateValue: true
+      - key: ZHIXIU_AI_CORS_ORIGINS
+        value: ""
+      # Keep public uploads closed until privacy contact and retention are set.
+      - key: ZHIXIU_AI_ANON_UPLOADS_PER_MINUTE
+        value: "0"
+      - key: ZHIXIU_AI_ANON_ANALYSES_PER_MINUTE
+        value: "0"
+
+  - type: web
+    name: zangqiangxiu-catalog
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: catalog-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: >-
+      sh -c 'export CATALOG_AI_INTERNAL_BASE_URL="$AI_SERVICE_URL/v1";
+      exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT"'
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: CATALOG_ENVIRONMENT
+        value: production
+      - key: CATALOG_DATABASE_BACKEND
+        value: postgresql
+      - key: CATALOG_DATABASE_URL
+        fromService:
+          type: web
+          name: zangqiangxiu-ai
+          envVarKey: ZHIXIU_AI_DATABASE_URL
+      - key: CATALOG_ADMIN_TOKEN
+        generateValue: true
+      - key: CATALOG_ACTOR_SIGNING_SECRET
+        generateValue: true
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: zangqiangxiu-ai
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CATALOG_AI_SERVICE_TOKEN
+        fromService:
+          type: web
+          name: zangqiangxiu-ai
+          envVarKey: ZHIXIU_AI_INTERNAL_TOKEN
+      - key: CATALOG_CORS_ORIGINS
+        value: ""
+      - key: CATALOG_S3_BUCKET
+        value: zhixiu-assets
+      - key: CATALOG_S3_ENDPOINT_URL
+        value: https://wdcxshlukuxofrtvjsui.storage.supabase.co/storage/v1/s3
+      - key: CATALOG_S3_REGION
+        value: us-west-2
+      - key: CATALOG_S3_PREFIX
+        value: production/catalog-evidence
+      - key: CATALOG_S3_ACCESS_KEY
+        fromService:
+          type: web
+          name: zangqiangxiu-ai
+          envVarKey: AWS_ACCESS_KEY_ID
+      - key: CATALOG_S3_SECRET_KEY
+        fromService:
+          type: web
+          name: zangqiangxiu-ai
+          envVarKey: AWS_SECRET_ACCESS_KEY
+
+  - type: web
+    name: zangqiangxiu-web
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: web
+    buildCommand: npm ci && npm run build
+    startCommand: >-
+      sh -c 'export CATALOG_API_INTERNAL_BASE_URL="$CATALOG_SERVICE_URL/api/v1";
+      export AI_API_INTERNAL_BASE_URL="$AI_SERVICE_URL/v1";
+      export PUBLIC_WEB_ORIGIN="$RENDER_EXTERNAL_URL";
+      exec npm run start -- -p "$PORT" -H 0.0.0.0'
+    healthCheckPath: /privacy
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: NEXT_PUBLIC_ALLOW_DEMO_FALLBACK
+        value: "false"
+      - key: CATALOG_PREVIEW_INTERNAL
+        value: "false"
+      - key: STUDIO_PREVIEW_INTERNAL
+        value: "false"
+      - key: CATALOG_SERVICE_URL
+        fromService:
+          type: web
+          name: zangqiangxiu-catalog
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: zangqiangxiu-ai
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: CATALOG_ADMIN_TOKEN
+        fromService:
+          type: web
+          name: zangqiangxiu-catalog
+          envVarKey: CATALOG_ADMIN_TOKEN
+      - key: CATALOG_ACTOR_SIGNING_SECRET
+        fromService:
+          type: web
+          name: zangqiangxiu-catalog
+          envVarKey: CATALOG_ACTOR_SIGNING_SECRET
+      - key: AI_INTERNAL_TOKEN
+        fromService:
+          type: web
+          name: zangqiangxiu-ai
+          envVarKey: ZHIXIU_AI_INTERNAL_TOKEN
+      - key: ADMIN_UI_USER
+        value: admin
+      - key: ADMIN_UI_PASSWORD
+        generateValue: true
+      - key: ADMIN_UI_ROLE
+        value: publisher
+      - key: AUTH_SESSION_SECRET
+        generateValue: true
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: ADMIN_ALLOW_BASIC_AUTH
+        value: "false"
+      - key: ADMIN_TRUST_PROXY
+        value: "false"

@@ -138,7 +138,9 @@ class PostgreSQLStorage:
             from psycopg.rows import dict_row
         except ImportError as exc:
             raise RuntimeError("Install psycopg[binary] to use PostgreSQL") from exc
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+        # Supabase's transaction pooler can reuse a server connection across
+        # clients, so client-side named prepared statements are unsafe here.
+        with psycopg.connect(self.database_url, row_factory=dict_row, prepare_threshold=None) as connection:
             with connection.cursor() as cursor:
                 yield cursor
             connection.commit()
